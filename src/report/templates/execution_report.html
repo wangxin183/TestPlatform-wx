@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>测试执行报告 - {{ project_name }}</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; color:#333; line-height:1.6; background:#f5f7fa; }
+  .container { max-width:1100px; margin:0 auto; padding:40px 20px; }
+
+  /* Header */
+  .header { background:linear-gradient(135deg, #667eea 0%, #764ba2 100%); color:#fff; padding:40px; border-radius:12px; margin-bottom:30px; }
+  .header h1 { font-size:28px; margin-bottom:8px; }
+  .header .meta { font-size:14px; opacity:0.85; display:flex; gap:24px; flex-wrap:wrap; }
+
+  /* Cards */
+  .cards { display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:16px; margin-bottom:30px; }
+  .card { background:#fff; border-radius:10px; padding:24px; box-shadow:0 1px 3px rgba(0,0,0,0.08); text-align:center; }
+  .card .value { font-size:36px; font-weight:700; }
+  .card .label { font-size:13px; color:#888; margin-top:4px; }
+  .card.passed { border-left:4px solid #28a745; }
+  .card.passed .value { color:#28a745; }
+  .card.failed { border-left:4px solid #dc3545; }
+  .card.failed .value { color:#dc3545; }
+  .card.rate { border-left:4px solid #667eea; }
+  .card.rate .value { color:#667eea; }
+  .card.duration { border-left:4px solid #fd7e14; }
+  .card.duration .value { color:#fd7e14; }
+
+  /* Sections */
+  .section { background:#fff; border-radius:10px; padding:30px; margin-bottom:24px; box-shadow:0 1px 3px rgba(0,0,0,0.08); }
+  .section h2 { font-size:20px; color:#333; margin-bottom:20px; padding-bottom:12px; border-bottom:2px solid #f0f0f0; }
+
+  /* Progress bar */
+  .progress-bar { height:10px; background:#e9ecef; border-radius:5px; overflow:hidden; margin:16px 0; }
+  .progress-fill { height:100%; border-radius:5px; transition:width 0.5s; }
+  .progress-fill.pass { background:#28a745; }
+  .progress-fill.fail { background:#dc3545; }
+  .progress-fill.error { background:#ffc107; }
+
+  /* Table */
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  thead th { background:#f8f9fa; padding:12px 16px; text-align:left; font-weight:600; border-bottom:2px solid #dee2e6; white-space:nowrap; }
+  tbody td { padding:10px 16px; border-bottom:1px solid #f0f0f0; vertical-align:top; }
+  tbody tr:hover { background:#f8f9ff; }
+
+  /* Badges */
+  .badge { display:inline-block; padding:2px 10px; border-radius:12px; font-size:12px; font-weight:600; }
+  .badge-passed { background:#d4edda; color:#155724; }
+  .badge-failed { background:#f8d7da; color:#721c24; }
+  .badge-error { background:#fff3cd; color:#856404; }
+  .badge-skipped { background:#e2e3e5; color:#383d41; }
+  .badge-critical { background:#f8d7da; color:#721c24; }
+  .badge-high { background:#fff3cd; color:#856404; }
+  .badge-medium { background:#d6d8db; color:#383d41; }
+  .badge-low { background:#d4edda; color:#155724; }
+
+  /* Timeline */
+  .timeline { display:flex; flex-wrap:wrap; gap:4px; margin:16px 0; }
+  .timeline-node { display:flex; align-items:center; gap:4px; padding:6px 12px; border-radius:6px; font-size:13px; background:#f0f0f0; }
+  .timeline-node.completed { background:#d4edda; color:#155724; }
+  .timeline-node.failed { background:#f8d7da; color:#721c24; }
+  .timeline-node.running { background:#cce5ff; color:#004085; }
+  .timeline-node.pending { background:#e2e3e5; color:#6c757d; }
+  .timeline-arrow { color:#adb5bd; font-size:12px; }
+
+  /* Defect card */
+  .defect-card { border:1px solid #e9ecef; border-radius:8px; padding:16px; margin-bottom:12px; }
+  .defect-card:hover { border-color:#667eea; }
+  .defect-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+  .defect-title { font-weight:600; font-size:15px; }
+
+  /* Type breakdown */
+  .type-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:12px; }
+  .type-card { background:#f8f9fa; border-radius:8px; padding:16px; }
+  .type-card h4 { font-size:14px; color:#555; margin-bottom:8px; text-transform:uppercase; }
+  .type-card .counts { display:flex; gap:16px; font-size:13px; }
+  .type-card .count-p { color:#28a745; }
+  .type-card .count-f { color:#dc3545; }
+
+  footer { text-align:center; color:#aaa; font-size:12px; margin-top:40px; }
+  footer p { margin:2px 0; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Header -->
+  <div class="header">
+    <h1>🧪 测试执行报告</h1>
+    <div class="meta">
+      <span>📁 {{ project_name }}</span>
+      <span>📱 {{ platform_type }}</span>
+      <span>🕐 {{ generated_at | fmt_date }}</span>
+      {% if pipeline_id %}<span>🔗 Pipeline: {{ pipeline_id[:8] }}...</span>{% endif %}
+    </div>
+  </div>
+
+  <!-- Summary Cards -->
+  <div class="cards">
+    <div class="card rate">
+      <div class="value">{{ pass_rate | fmt_pct }}</div>
+      <div class="label">通过率</div>
+    </div>
+    <div class="card passed">
+      <div class="value">{{ passed }}</div>
+      <div class="label">通过</div>
+    </div>
+    <div class="card failed">
+      <div class="value">{{ failed + error }}</div>
+      <div class="label">失败 / 错误</div>
+    </div>
+    <div class="card duration">
+      <div class="value">{{ total_duration_s }}</div>
+      <div class="label">总耗时 (秒)</div>
+    </div>
+  </div>
+
+  <!-- Progress Bar -->
+  <div class="section">
+    <h2>📊 执行概览</h2>
+    <div style="display:flex; justify-content:space-between; font-size:13px; color:#888; margin-bottom:8px;">
+      <span>总计: {{ total }} 条用例</span>
+      <span>跳过: {{ skipped }}</span>
+    </div>
+    <div class="progress-bar">
+      <div class="progress-fill pass" style="width:{{ (passed / total * 100) if total > 0 else 0 }}%"></div>
+    </div>
+    <div style="display:flex; gap:24px; margin-top:8px; font-size:13px;">
+      <span>✅ 通过 {{ passed }} ({{ (passed / total * 100) | round(1) if total > 0 else 0 }}%)</span>
+      <span>❌ 失败 {{ failed }}</span>
+      <span>⚠️ 错误 {{ error }}</span>
+    </div>
+  </div>
+
+  <!-- Stage Timeline -->
+  {% if timeline %}
+  <div class="section">
+    <h2>⏱️ Pipeline 阶段时间线</h2>
+    <div class="timeline">
+      {% for node in timeline %}
+        {% if not loop.first %}<span class="timeline-arrow">→</span>{% endif %}
+        <div class="timeline-node {{ node.status }}">
+          {{ node.stage_name }}
+          {% if node.duration %}<small>({{ node.duration }})</small>{% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- By Test Type -->
+  {% if by_test_type %}
+  <div class="section">
+    <h2>📂 按测试类型分布</h2>
+    <div class="type-grid">
+      {% for tt, stats in by_test_type.items() %}
+      <div class="type-card">
+        <h4>{{ tt | upper }}</h4>
+        <div class="counts">
+          <span>总计: {{ stats.total }}</span>
+          <span class="count-p">✅ {{ stats.passed }}</span>
+          {% if stats.failed %}<span class="count-f">❌ {{ stats.failed }}</span>{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Execution Results -->
+  <div class="section">
+    <h2>📋 用例执行详情</h2>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>用例标题</th>
+            <th>类型</th>
+            <th>优先级</th>
+            <th>状态</th>
+            <th>耗时</th>
+            <th>备注</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in results %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td>{{ r.get("title", r.get("case_title", "-")) }}</td>
+            <td>{{ r.get("test_type", "-") }}</td>
+            <td>{{ r.get("priority", "-") }}</td>
+            <td>{{ r.get("status", "-") | status_badge }}</td>
+            <td>{{ (r.get("duration_ms", 0) / 1000) | round(2) if r.get("duration_ms") else "-" }}s</td>
+            <td style="max-width:300px; font-size:12px; color:#888;">
+              {{ r.get("error_message", r.get("failure_reason", ""))[:200] }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Defects -->
+  {% if defects %}
+  <div class="section">
+    <h2>🐛 缺陷列表 ({{ defects | length }})</h2>
+    {% for d in defects %}
+    <div class="defect-card">
+      <div class="defect-header">
+        <span class="defect-title">{{ d.get("title", "未知缺陷") }}</span>
+        <span class="badge badge-{{ d.get('severity', 'medium') }}">{{ d.get("severity", "medium") }}</span>
+      </div>
+      <div style="font-size:13px; color:#666;">{{ d.get("description", "")[:300] }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if performance_plan %}
+  <div class="section">
+    <h2>⚡ 性能测试方案</h2>
+    <pre style="white-space:pre-wrap; font-size:13px; background:#f8f9fa; padding:16px; border-radius:8px;">{{ performance_plan | tojson(indent=2) }}</pre>
+  </div>
+  {% endif %}
+
+  {% if security_plan %}
+  <div class="section">
+    <h2>🔒 安全测试方案</h2>
+    <pre style="white-space:pre-wrap; font-size:13px; background:#f8f9fa; padding:16px; border-radius:8px;">{{ security_plan | tojson(indent=2) }}</pre>
+  </div>
+  {% endif %}
+
+  <footer>
+    <p>TestPlatform v0.1.0 — AI 驱动的自动化测试平台</p>
+    <p>报告生成时间: {{ generated_at | fmt_date }}</p>
+  </footer>
+</div>
+</body>
+</html>

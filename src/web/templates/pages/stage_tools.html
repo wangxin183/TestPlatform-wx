@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}阶段工具 - TestPlatform{% endblock %}
+{% block content %}
+<div class="content-header">
+  <div>
+    <div class="breadcrumb"><a href="/projects">项目管理</a> <span>/</span> <a id="tool-project-link" href="#">项目</a> <span>/</span> <span>阶段工具</span></div>
+    <h1>阶段工具 <span class="text-muted text-sm" id="tool-stage-label"></span></h1>
+  </div>
+</div>
+<div class="content-body fade-in" id="tool-content">
+  <!-- Stage tabs -->
+  <div class="tabs mb-md" id="stage-tabs"></div>
+
+  <!-- Input panel -->
+  <div class="panel mb-md">
+    <div class="panel-header">输入配置</div>
+    <div class="panel-body">
+
+    <!-- Mode switch -->
+    <div class="flex gap-sm mb-sm" style="align-items:center">
+      <span class="text-sm text-muted">输入方式：</span>
+      <label class="radio-label"><input type="radio" name="input-mode" value="upload" checked onchange="switchInputMode()"> 本地上传</label>
+      <label class="radio-label" id="project-data-option" style="display:none"><input type="radio" name="input-mode" value="project" onchange="switchInputMode()"> 使用项目数据</label>
+    </div>
+
+    <!-- Upload mode -->
+    <div id="upload-mode">
+      <div class="flex gap-sm mb-sm" style="align-items:center;flex-wrap:wrap">
+        <input type="file" id="tool-file-input" class="form-input" style="max-width:400px" accept=".pdf,.docx,.md,.txt,.json,.yaml,.xlsx">
+        <button class="btn btn-primary" onclick="uploadToolFile()">上传文件</button>
+      </div>
+      <div class="text-sm text-muted mb-sm">或输入 URL 链接：</div>
+      <div class="flex gap-sm mb-sm" style="align-items:center">
+        <input type="url" id="tool-url-input" class="form-input" style="max-width:400px;flex:1" placeholder="https://example.com/doc.md">
+        <button class="btn btn-outline" onclick="addUrlSource()">添加链接</button>
+      </div>
+      <div id="upload-source-list"></div>
+    </div>
+
+    <!-- Project data mode -->
+    <div id="project-mode" style="display:none">
+      <div id="project-data-list"><span class="text-muted">选择数据源...</span></div>
+    </div>
+
+    <!-- Run button -->
+    <div style="margin-top:16px">
+      <button class="btn btn-primary" id="btn-run-stage" onclick="runStage()" disabled>&#9654; 运行阶段</button>
+      <span class="text-sm text-muted ml-sm" id="run-hint"></span>
+    </div>
+    </div>
+  </div>
+
+  <!-- Output panel -->
+  <div class="panel" id="output-panel" style="display:none">
+    <div class="panel-header">运行结果</div>
+    <div class="panel-body">
+    <div id="output-status"></div>
+    <div id="output-data"></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/stage_tools.js?v=1"></script>
+{% endblock %}

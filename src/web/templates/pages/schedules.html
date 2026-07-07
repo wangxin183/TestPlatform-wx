@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}定时任务 - TestPlatform{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h2>⏰ 定时任务</h2>
+  <div class="page-actions">
+    <button class="btn btn-primary" onclick="showCreateForm()">+ 新建定时任务</button>
+  </div>
+</div>
+
+<div id="schedule-list" class="card-list">
+  <p class="loading-text">加载中...</p>
+</div>
+
+<!-- Create/Edit Modal -->
+<div id="form-modal" class="modal" style="display:none;">
+  <div class="modal-overlay" onclick="closeForm()"></div>
+  <div class="modal-content">
+    <div class="modal-header">
+      <span id="form-title">新建定时任务</span>
+      <button class="btn-close" onclick="closeForm()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="edit-id">
+      <div class="form-group">
+        <label>任务名称 *</label>
+        <input id="sched-name" placeholder="例如：每日凌晨回归测试" maxlength="255">
+      </div>
+      <div class="form-group">
+        <label>Cron 表达式 *</label>
+        <input id="sched-cron" placeholder="0 2 * * * (每天凌晨2点)">
+        <small style="color:#888;">格式: 分 时 日 月 周 (例如: 0 8 * * 1-5 工作日早8点)</small>
+      </div>
+      <div class="form-group">
+        <label>关联文档 ID (逗号分隔)</label>
+        <textarea id="sched-docs" placeholder="doc-uuid-1, doc-uuid-2"></textarea>
+      </div>
+      <div class="form-group">
+        <label>
+          <input type="checkbox" id="sched-enabled" checked> 启用
+        </label>
+      </div>
+      <div style="display:flex; gap:8px; justify-content:flex-end;">
+        <button class="btn" onclick="closeForm()">取消</button>
+        <button class="btn btn-primary" onclick="saveSchedule()">保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const PROJECT_ID = window.location.pathname.split('/')[2];
+
+async function loadSchedules() {
+  const container = document.getElementById('schedule-list');
+  try {
+    const resp = await api.get(`/projects/${PROJECT_ID}/schedules`);
+    if (!resp.data || resp.data.length === 0) {
+      container.innerHTML = '<div class="empty-state">暂无定时任务，点击"新建定时任务"创建</div>';
+      return;
+    }
+    container.innerHTML = resp.data.map(s => `
+      <div class="card-item">
+        <div class="card-info">
+          <span class="card-title">
+            <span class="status-dot ${s.enabled ? 'active' : 'inactive'}"></span>${s.name}
+          </span>
+          <span class="card-meta">Cron: ${s.cron_expression}</span>
+          ${s.next_run_at ? `<span class="card-meta">下次执行: ${fmt.date(s.next_run_at)}</span>` : ''}
+          ${s.last_run_at ? `<span class="card-meta">上次执行: ${fmt.date(s.last_run_at)} - ${s.last_run_status || '-'}</span>` : '<span class="card-meta">尚未执行过</span>'}
+        </div>
+        <div class="card-actions">
+          <button class="btn btn-sm" onclick="runNow('${s.id}')">▶️ 立即执行</button>
+          <button class="btn btn-sm" onclick="editSchedule('${s.id}')">✏️</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteSch('${s.id}')">🗑️</button>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) {
+    container.innerHTML = `<div class="error-state">加载失败: ${e.message}</div>`;
+  }
+}
+
+function showCreateForm() {
+  document.getElementById('form-title').textContent = '新建定时任务';
+  document.getElementById('edit-id').value = '';
+  document.getElementById('sched-name').value = '';
+  document.getElementById('sched-cron').value = '';
+  document.getElementById('sched-docs').value = '';
+  document.getElementById('sched-enabled').checked = true;
+  document.getElementById('form-modal').style.display = 'flex';
+}
+
+async function editSchedule(id) {
+  const resp = await api.get(`/projects/${PROJECT_ID}/schedules`);
+  const s = resp.data.find(x => x.id === id);
+  if (!s) return;
+  document.getElementById('form-title').textContent = '编辑定时任务';
+  document.getElementById('edit-id').value = s.id;
+  document.getElementById('sched-name').value = s.name;
+  document.getElementById('sched-cron').value = s.cron_expression;
+  document.getElementById('sched-docs').value = (s.document_ids || []).join(',');
+  document.getElementById('sched-enabled').checked = s.enabled;
+  document.getElementById('form-modal').style.display = 'flex';
+}
+
+function closeForm() {
+  document.getElementById('form-modal').style.display = 'none';
+}
+
+async function saveSchedule() {
+  const id = document.getElementById('edit-id').value;
+  const body = {
+    name: document.getElementById('sched-name').value.trim(),
+    cron_expression: document.getElementById('sched-cron').value.trim(),
+    document_ids: document.getElementById('sched-docs').value.split(',').map(s => s.trim()).filter(Boolean),
+    enabled: document.getElementById('sched-enabled').checked,
+  };
+  if (!body.name || !body.cron_expression) {
+    alert('名称和 Cron 表达式不能为空');
+    return;
+  }
+  try {
+    if (id) {
+      await api.put(`/schedules/${id}`, body);
+    } else {
+      await api.post(`/projects/${PROJECT_ID}/schedules`, body);
+    }
+    closeForm();
+    loadSchedules();
+  } catch(e) {
+    alert(`保存失败: ${e.message}`);
+  }
+}
+
+async function deleteSch(id) {
+  if (!confirm('确认删除此定时任务？')) return;
+  try {
+    await api.del(`/schedules/${id}`);
+    loadSchedules();
+  } catch(e) {
+    alert(`删除失败: ${e.message}`);
+  }
+}
+
+async function runNow(id) {
+  try {
+    await api.post(`/schedules/${id}/run-now`, {});
+    alert('已触发执行，请前往流水线页面查看进度');
+  } catch(e) {
+    alert(`触发失败: ${e.message}`);
+  }
+}
+
+loadSchedules();
+</script>
+{% endblock %}

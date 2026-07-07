@@ -1,0 +1,46 @@
+你是 API 测试脚本生成专家。根据以下测试用例，生成一个可直接运行的 Python 异步测试脚本。
+
+## 测试用例
+标题: {test_case_title}
+描述: {test_case_description}
+步骤:
+{test_case_steps}
+
+## 测试环境
+Base URL: {base_url}
+Headers: {headers}
+
+## 脚本要求
+- 使用 httpx.AsyncClient 进行 HTTP 请求
+- 使用 jsonschema 进行响应 Schema 验证
+- 每个步骤对应一个 async 函数
+- 包含完整的断言逻辑（状态码、响应体字段、JSON Schema）
+- 包含详细的中文注释说明每个测试步骤
+- 统一的错误处理和日志输出
+- main() 入口函数，可独立运行
+
+## 脚本结构
+```python
+import asyncio
+import json
+import httpx
+from jsonschema import validate, ValidationError
+
+# 配置
+BASE_URL = "{base_url}"
+HEADERS = {headers}
+
+async def step_1_xxx(client):
+    \"\"\"步骤1描述\"\"\"
+    ...
+
+async def main():
+    async with httpx.AsyncClient(base_url=BASE_URL, headers=HEADERS, timeout=30.0) as client:
+        await step_1_xxx(client)
+        ...
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+只输出完整的 Python 代码，不要输出其他内容。

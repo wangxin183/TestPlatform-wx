@@ -1,0 +1,374 @@
+{% extends "base.html" %}
+{% block title %}用例评审 - TestPlatform{% endblock %}
+
+{% block head_extra %}{% endblock %}
+
+{% block content %}
+
+<div class="rv-page">
+  <!-- Content Header -->
+  <header class="rv-header">
+    <div class="rv-header-left">
+      <div class="rv-header-icon-wrap">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+      </div>
+      <div>
+        <h1 class="rv-header-title">用例评审管理</h1>
+        <p class="rv-header-sub">Review & approve test cases across pipelines and uploads</p>
+      </div>
+    </div>
+  </header>
+
+  <div class="rv-page-body">
+    <!-- Tab Switcher -->
+    <nav class="rv-tabs">
+      <button class="rv-tab active" data-tab="pipeline" onclick="switchReviewTab('pipeline')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>
+        流水线评审
+      </button>
+      <button class="rv-tab" data-tab="upload" onclick="switchReviewTab('upload')">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        上传评审
+      </button>
+    </nav>
+
+    <!-- ═══════════════════════════════════════════════ -->
+    <!-- Tab 1: Pipeline Review -->
+    <!-- ═══════════════════════════════════════════════ -->
+    <div class="rv-tab-panel active" id="tab-pipeline">
+
+      <!-- Selector Card -->
+      <div class="rv-card rv-selector-card">
+        <div class="rv-selector-row">
+          <div class="rv-selector-item">
+            <span class="rv-selector-chip">1</span>
+            <div>
+              <span class="rv-selector-label">选择项目</span>
+              <select class="rv-select" id="pipeline-project-select" onchange="onPipelineProjectChange()">
+                <option value="">-- 请选择项目 --</option>
+              </select>
+            </div>
+          </div>
+          <div class="rv-selector-divider">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+          <div class="rv-selector-item">
+            <span class="rv-selector-chip">2</span>
+            <div>
+              <span class="rv-selector-label">选择流水线</span>
+              <select class="rv-select" id="pipeline-select" onchange="onPipelineSelect()">
+                <option value="">-- 请先选择项目 --</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stats Cards -->
+      <div class="rv-stats-grid" id="pipeline-review-progress" style="display:none">
+        <div class="rv-stat-card">
+          <div class="rv-stat-card-inner">
+            <span class="rv-stat-card-num" id="pipe-stat-total">0</span>
+            <span class="rv-stat-card-label">总计用例</span>
+          </div>
+          <div class="rv-stat-card-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+          </div>
+        </div>
+        <div class="rv-stat-card rv-stat-card--reviewed">
+          <div class="rv-stat-card-inner">
+            <span class="rv-stat-card-num" id="pipe-stat-reviewed">0</span>
+            <span class="rv-stat-card-label">已评审</span>
+          </div>
+          <div class="rv-stat-card-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
+        </div>
+        <div class="rv-stat-card rv-stat-card--approved">
+          <div class="rv-stat-card-inner">
+            <span class="rv-stat-card-num" id="pipe-stat-approved">0</span>
+            <span class="rv-stat-card-label">已通过</span>
+          </div>
+          <div class="rv-stat-card-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          </div>
+        </div>
+        <div class="rv-stat-card rv-stat-card--rejected">
+          <div class="rv-stat-card-inner">
+            <span class="rv-stat-card-num" id="pipe-stat-rejected">0</span>
+            <span class="rv-stat-card-label">已驳回</span>
+          </div>
+          <div class="rv-stat-card-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+          </div>
+        </div>
+        <div class="rv-stat-card rv-stat-card--pending">
+          <div class="rv-stat-card-inner">
+            <span class="rv-stat-card-num" id="pipe-stat-pending">0</span>
+            <span class="rv-stat-card-label">待评审</span>
+          </div>
+          <div class="rv-stat-card-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- Review Layout -->
+      <div class="rv-review-layout" id="pipeline-review-layout" style="display:none">
+        <aside class="rv-sidebar">
+          <div class="rv-card rv-sidebar-card">
+            <h4 class="rv-sidebar-title">筛选</h4>
+            <select class="rv-select rv-select-sm" id="pipe-filter-priority" onchange="applyPipelineFilters()">
+              <option value="">全部优先级</option>
+              <option value="严重">严重</option>
+              <option value="高">高</option>
+              <option value="中">中</option>
+              <option value="低">低</option>
+            </select>
+            <select class="rv-select rv-select-sm" id="pipe-filter-status" onchange="applyPipelineFilters()">
+              <option value="">全部状态</option>
+              <option value="pending_review">待评审</option>
+              <option value="approved">已通过</option>
+              <option value="rejected">已驳回</option>
+            </select>
+            <div class="rv-search-wrap">
+              <svg class="rv-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input class="rv-search-input" placeholder="搜索用例..." id="pipe-filter-search" oninput="applyPipelineFilters()">
+            </div>
+          </div>
+          <div class="rv-card rv-sidebar-card">
+            <h4 class="rv-sidebar-title">按类型</h4>
+            <div id="pipe-group-nav"></div>
+          </div>
+          <div class="rv-card rv-sidebar-card">
+            <h4 class="rv-sidebar-title">操作</h4>
+            <button class="rv-btn rv-btn-sm rv-btn-success rv-btn-block" onclick="reviewPipelineBatch('approve')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+              批量通过
+            </button>
+            <button class="rv-btn rv-btn-sm rv-btn-danger rv-btn-block" onclick="reviewPipelineBatch('reject')">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              批量驳回
+            </button>
+          </div>
+        </aside>
+
+        <div class="rv-main">
+          <div class="rv-toolbar">
+            <label class="rv-checkbox">
+              <input type="checkbox" id="pipe-select-all" onchange="togglePipeSelectAll()">
+              <span class="rv-checkbox-mark"></span>
+              全选
+            </label>
+            <span class="rv-selected-count" id="pipe-selected-count">已选 0 条</span>
+            <div class="rv-toolbar-progress">
+              <div class="rv-toolbar-progress-track">
+                <div class="rv-toolbar-progress-fill" id="pipe-toolbar-fill" style="width:0%"></div>
+              </div>
+            </div>
+          </div>
+          <div class="rv-table-wrap rv-card">
+            <table class="rv-table">
+              <thead><tr>
+                <th class="rv-th-check"></th>
+                <th>用例标题</th>
+                <th class="rv-th-tag">优先级</th>
+                <th class="rv-th-tag">类型</th>
+                <th class="rv-th-num">AI 评分</th>
+                <th class="rv-th-tag">状态</th>
+                <th class="rv-th-act">操作</th>
+              </tr></thead>
+              <tbody id="pipeline-cases-list">
+                <tr><td colspan="7" class="rv-empty">请选择项目和流水线以查看用例</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════ -->
+    <!-- Tab 2: Upload Review -->
+    <!-- ═══════════════════════════════════════════════ -->
+    <div class="rv-tab-panel" id="tab-upload">
+
+      <div class="rv-card rv-upload-card">
+        <div class="rv-upload-top">
+          <div class="rv-selector-item">
+            <span class="rv-selector-label">用例格式</span>
+            <select class="rv-select" id="upload-format" onchange="onUploadFormatChange()">
+              <option value="json">JSON</option>
+              <option value="excel">Excel (.xlsx)</option>
+              <option value="markdown">Markdown (.md)</option>
+              <option value="xmind">XMind (.xmind)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="rv-dropzone" id="upload-dropzone">
+          <div class="rv-dropzone-inner">
+            <div class="rv-dropzone-icon-ring">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            </div>
+            <p class="rv-dropzone-text">拖拽文件到此处</p>
+            <p class="rv-dropzone-or">或</p>
+            <div class="rv-dropzone-actions">
+              <button class="rv-btn rv-btn-sm rv-btn-primary" onclick="document.getElementById('upload-file-input').click()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                选择文件
+              </button>
+              <button class="rv-btn rv-btn-sm rv-btn-outline" id="text-input-toggle" onclick="showTextInput()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                粘贴文本
+              </button>
+            </div>
+            <p class="rv-dropzone-hint" id="upload-format-hint">JSON, Excel, Markdown, XMind</p>
+            <input type="file" id="upload-file-input" style="display:none" accept=".json,.xlsx,.md,.xmind" onchange="onFileSelect()">
+          </div>
+        </div>
+        <div id="upload-file-info" class="rv-file-info" style="display:none"></div>
+
+        <div class="rv-text-input-area" id="upload-text-area" style="display:none">
+          <textarea class="rv-textarea" id="upload-text-input" rows="10" placeholder="请粘贴 JSON 用例内容..."></textarea>
+          <div class="rv-text-input-actions">
+            <button class="rv-btn rv-btn-sm rv-btn-primary" onclick="parseUploadContent()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              解析预览
+            </button>
+            <button class="rv-btn rv-btn-sm rv-btn-outline" onclick="hideTextInput()">返回上传</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Parse Preview -->
+      <div class="rv-card" id="upload-preview" style="display:none">
+        <div class="rv-preview-hd">
+          <span class="rv-preview-badge rv-preview-badge--ok">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            <strong id="preview-count">0</strong> 条解析成功
+          </span>
+          <span class="rv-preview-meta" id="preview-method"></span>
+          <span class="rv-preview-warn" id="preview-hint"></span>
+          <div class="rv-preview-acts">
+            <button class="rv-btn rv-btn-sm rv-btn-accent" onclick="confirmUpload()">确认上传并评审</button>
+            <button class="rv-btn rv-btn-sm rv-btn-outline" onclick="cancelPreview()">取消</button>
+          </div>
+        </div>
+        <div class="rv-table-wrap rv-table-scroll">
+          <table class="rv-table rv-table-sm">
+            <thead><tr><th>标题</th><th class="rv-th-tag">优先级</th><th class="rv-th-tag">类型</th><th class="rv-th-num">步骤数</th></tr></thead>
+            <tbody id="upload-preview-table"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Upload Review Table -->
+      <div class="rv-card" id="upload-review-section" style="display:none">
+        <div class="rv-preview-hd">
+          <span>批次 <code class="rv-code" id="upload-batch-id"></code></span>
+          <span class="rv-preview-meta">格式: <span id="upload-batch-format"></span></span>
+          <button class="rv-btn rv-btn-xs rv-btn-outline" onclick="refreshUploadReview()" style="margin-left:auto">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            刷新
+          </button>
+        </div>
+        <div class="rv-toolbar">
+          <label class="rv-checkbox">
+            <input type="checkbox" id="upload-select-all" onchange="toggleUploadSelectAll()">
+            <span class="rv-checkbox-mark"></span>
+            全选
+          </label>
+          <span class="rv-selected-count" id="upload-selected-count">已选 0 条</span>
+          <div class="rv-toolbar-actions">
+            <button class="rv-btn rv-btn-xs rv-btn-success" onclick="reviewUploadBatch('approve')">批量通过</button>
+            <button class="rv-btn rv-btn-xs rv-btn-danger" onclick="reviewUploadBatch('reject')">批量驳回</button>
+          </div>
+        </div>
+        <div class="rv-table-wrap">
+          <table class="rv-table">
+            <thead><tr>
+              <th class="rv-th-check"></th>
+              <th>用例标题</th>
+              <th class="rv-th-tag">优先级</th>
+              <th class="rv-th-tag">类型</th>
+              <th class="rv-th-num">AI 评分</th>
+              <th class="rv-th-tag">状态</th>
+              <th class="rv-th-act">操作</th>
+            </tr></thead>
+            <tbody id="upload-cases-list"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Upload History -->
+      <div class="rv-card" id="upload-history">
+        <div class="rv-card-hd">
+          <h3 class="rv-card-hd-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            上传历史
+          </h3>
+        </div>
+        <div class="rv-table-wrap">
+          <table class="rv-table">
+            <thead><tr>
+              <th>批次</th><th class="rv-th-tag">格式</th><th class="rv-th-num">总数</th>
+              <th class="rv-th-num">通过</th><th class="rv-th-num">驳回</th>
+              <th class="rv-th-tag">时间</th><th class="rv-th-act">操作</th>
+            </tr></thead>
+            <tbody id="upload-history-list"><tr><td colspan="7" class="rv-empty">加载中...</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Detail Modal -->
+<div class="rv-modal-overlay" id="case-detail-modal">
+  <div class="rv-modal-glass"></div>
+  <div class="rv-modal">
+    <div class="rv-modal-header">
+      <div>
+        <span class="rv-modal-kicker">Case Detail</span>
+        <h3 class="rv-modal-title" id="case-detail-title">用例详情</h3>
+      </div>
+      <button class="rv-btn-icon" onclick="Modal.close('case-detail-modal')" aria-label="关闭">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="rv-modal-body" id="case-detail-body"></div>
+    <div class="rv-modal-footer" id="case-detail-footer">
+      <div class="rv-modal-footer-left">
+        <select class="rv-select rv-select-sm" id="reject-reason-select">
+          <option value="">驳回原因（可选）</option>
+          <option value="steps_incomplete">步骤不完整</option>
+          <option value="description_vague">描述模糊</option>
+          <option value="wrong_priority">优先级错误</option>
+          <option value="wrong_type">类型错误</option>
+          <option value="duplicate">重复用例</option>
+          <option value="other">其他</option>
+        </select>
+        <textarea class="rv-textarea rv-textarea-sm" id="review-comment" placeholder="评审意见..." rows="2"></textarea>
+      </div>
+      <div class="rv-modal-footer-right">
+        <button class="rv-btn rv-btn-sm rv-btn-outline" id="btn-edit-mode" onclick="toggleReviewEditMode()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          编辑
+        </button>
+        <button class="rv-btn rv-btn-sm rv-btn-danger" onclick="submitReview('reject')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          驳回
+        </button>
+        <button class="rv-btn rv-btn-sm rv-btn-accent" onclick="submitReview('approve')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+          通过
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/review_module.js?v=7"></script>
+{% endblock %}

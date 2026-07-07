@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}需求分析 - TestPlatform{% endblock %}
+
+{% block content %}
+<div class="rv-page">
+  <div class="rv-header">
+    <div>
+      <h1>📋 需求分析</h1>
+      <p class="rv-breadcrumb">AI 驱动 · 上传需求文档，自动提取测试需求并生成结构化分析结果</p>
+    </div>
+  </div>
+
+  <div class="rv-page-body analysis-layout">
+    <!-- ===== 左侧面板：上传 + 历史 ===== -->
+    <div class="analysis-left">
+
+      <!-- 上传区 -->
+      <div class="rv-card" id="upload-panel">
+        <div class="rv-card-header">
+          <h3>📤 上传需求文档</h3>
+        </div>
+        <div class="rv-card-body">
+          <div class="upload-zone" id="upload-zone">
+            <div class="upload-zone-icon">📄</div>
+            <p class="upload-zone-text">拖拽文档到此处，或点击上传</p>
+            <p class="upload-zone-hint">支持 docx / pdf / xlsx / json / yaml / md / txt</p>
+            <input type="file" id="file-input" accept=".docx,.pdf,.xlsx,.json,.yaml,.yml,.md,.txt" hidden>
+            <button class="rv-btn rv-btn-primary" onclick="document.getElementById('file-input').click()">
+              选择文件
+            </button>
+          </div>
+          <div class="upload-file-info" id="file-info" style="display:none">
+            <span class="file-name" id="file-name"></span>
+            <span class="file-size" id="file-size"></span>
+            <button class="rv-btn rv-btn-sm rv-btn-danger" onclick="clearFile()">移除</button>
+          </div>
+
+          <div class="analysis-options">
+            <label class="opt-label">
+              <span>目标平台</span>
+              <select id="platform-type" class="rv-select">
+                <option value="">自动检测</option>
+                <option value="web">Web</option>
+                <option value="ios">iOS</option>
+                <option value="android">Android</option>
+                <option value="api">API</option>
+              </select>
+            </label>
+            <label class="opt-label">
+              <span>知识库模块（可选，逗号分隔）</span>
+              <input type="text" id="obsidian-modules" class="rv-input" placeholder="如：会员体系,阅读器">
+            </label>
+            <label class="opt-label">
+              <span>自定义要求（可选）</span>
+              <textarea id="custom-prompt" class="rv-textarea" rows="2"
+                placeholder="额外的分析要求，如：重点关注支付安全、需要覆盖弱网场景..."></textarea>
+            </label>
+          </div>
+
+          <button class="rv-btn rv-btn-primary rv-btn-block" id="start-btn" onclick="startAnalysis()" disabled>
+            🚀 开始分析
+          </button>
+        </div>
+      </div>
+
+      <!-- 进度条 -->
+      <div class="rv-card" id="progress-panel" style="display:none">
+        <div class="rv-card-body">
+          <div class="progress-header">
+            <span id="progress-step">准备中...</span>
+            <span id="progress-pct">0%</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-bar-fill" id="progress-fill" style="width:0%"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 历史记录 -->
+      <div class="rv-card" id="history-panel">
+        <div class="rv-card-header">
+          <h3>📜 分析记录</h3>
+        </div>
+        <div class="rv-card-body" id="history-list">
+          <p class="rv-text-muted">加载中...</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 右侧面板：分析结果 ===== -->
+    <div class="analysis-right">
+      <div class="rv-card" id="result-panel">
+        <div class="rv-card-header">
+          <h3>📊 分析结果</h3>
+          <span class="status-badge" id="result-status"></span>
+        </div>
+        <div class="rv-card-body" id="result-content">
+          <div class="empty-state">
+            <div class="empty-state-icon">📋</div>
+            <p>选择或上传需求文档开始分析</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/requirement_analysis.js?v=1"></script>
+{% endblock %}

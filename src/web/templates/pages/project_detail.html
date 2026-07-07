@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}项目详情 - TestPlatform{% endblock %}
+{% block head_extra %}{% endblock %}
+{% block content %}
+<div class="rv-page">
+  <header class="rv-header">
+    <div class="rv-header-left">
+      <div class="rv-header-icon-wrap">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+      </div>
+      <div>
+        <h1 class="rv-header-title" id="page-title">项目详情</h1>
+        <p class="rv-header-sub"><a href="/projects">项目管理</a> / <span id="breadcrumb-name">加载中...</span></p>
+      </div>
+    </div>
+    <button class="rv-btn rv-btn-accent" id="btn-start-pipeline" onclick="startPipeline()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      启动流水线
+    </button>
+  </header>
+
+  <div class="rv-page-body">
+
+    <!-- ====== 项目信息 ====== -->
+    <div class="rv-card" style="margin-bottom:16px">
+      <div class="rv-card-hd">
+        <span class="rv-card-hd-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          项目信息
+        </span>
+      </div>
+      <div class="rv-card-hd" style="border-bottom:none; padding-top:0">
+        <div class="rv-detail-grid" id="project-info" style="margin-bottom:0; padding-bottom:0; border-bottom:none; width:100%">
+          <span class="rv-muted" style="padding:12px 0">加载中...</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====== 文档管理 ====== -->
+    <div class="rv-card rv-upload-card" style="margin-bottom:16px">
+      <div class="rv-card-hd" style="padding-left:0; padding-right:0">
+        <span class="rv-card-hd-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          文档管理
+        </span>
+      </div>
+      <div class="rv-upload-actions" style="margin-top:0">
+        <input type="file" id="doc-file-input" class="rv-input" style="max-width:360px" accept=".pdf,.docx,.doc,.md,.txt,.json,.yaml,.yml,.xlsx">
+        <button class="rv-btn rv-btn-accent rv-btn-sm" onclick="uploadDocument()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          上传文档
+        </button>
+      </div>
+      <div id="doc-list" style="margin-top:12px"><span class="rv-muted" style="font-size:12px">暂无文档</span></div>
+    </div>
+
+    <!-- ====== 流水线记录 ====== -->
+    <div class="rv-card">
+      <div class="rv-card-hd">
+        <span class="rv-card-hd-title">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+          流水线记录
+        </span>
+      </div>
+      <div class="rv-table-wrap">
+        <table class="rv-table rv-table--nosticky">
+          <thead><tr><th>ID</th><th>当前阶段</th><th>状态</th><th>开始时间</th><th>操作</th></tr></thead>
+          <tbody id="pipeline-list"><tr><td colspan="5" class="rv-empty">暂无流水线</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/project_detail.js?v=5"></script>
+{% endblock %}

@@ -1,0 +1,4 @@
+- [工作流程准则](feedback_workflow.md) — 任何改动前先判断可行性、是否可实施、是否有更好的替代方案
+- [上下文与成本意识](feedback_context_cost.md) — 所有任务必须考虑上下文窗口和 token 成本
+- [调试准则：先诊断再开药](feedback_debugging.md) — 禁止凭经验猜测 bug 原因，必须系统性排查根因后再动手
+- [500错误处理准则](feedback_500_errors.md) — 读堆栈不猜测 + 模型与DB同步 + 改动全局检查

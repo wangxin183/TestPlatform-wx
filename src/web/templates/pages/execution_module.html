@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block title %}测试执行 - TestPlatform{% endblock %}
+{% block content %}
+<div class="content-header">
+  <div>
+    <div class="breadcrumb"><span>测试执行</span></div>
+    <h1>测试执行</h1>
+    <p class="text-muted text-sm">选择目录中或流水线中已评审通过的用例，自动执行并输出测试结果</p>
+  </div>
+</div>
+
+<div class="content-body fade-in">
+  <!-- ====== 统计行 ====== -->
+  <div class="stat-row-grid" id="exec-stats-bar" style="display:none">
+    <div class="stat-card">
+      <div class="stat-icon blue"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/></svg></div>
+      <div class="stat-info"><div class="stat-label">总计</div><div class="stat-value" id="stat-total">0</div></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon green"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg></div>
+      <div class="stat-info"><div class="stat-label">通过</div><div class="stat-value text-success" id="stat-passed">0</div></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon orange"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div>
+      <div class="stat-info"><div class="stat-label">失败</div><div class="stat-value text-danger" id="stat-failed">0</div></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon purple"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></div>
+      <div class="stat-info"><div class="stat-label">脚本生成</div><div class="stat-value" id="stat-generated" style="color:#7c3aed">0</div></div>
+    </div>
+  </div>
+
+  <!-- ====== 用例来源选择 ====== -->
+  <div class="tabs mb-md" id="source-tabs">
+    <button class="tab active" onclick="switchSource('directory')">📂 目录用例</button>
+    <button class="tab" onclick="switchSource('pipeline')">🔁 流水线用例</button>
+  </div>
+
+  <!-- ════════════════════════════════════ -->
+  <!-- 来源1：目录用例                    -->
+  <!-- ════════════════════════════════════ -->
+  <div class="panel mb-md" id="source-directory">
+    <div class="panel-header">
+      <span>选择用例目录</span>
+    </div>
+    <div class="panel-body">
+      <div class="two-col">
+        <!-- 目录树 -->
+        <div>
+          <div class="text-sm text-muted mb-sm">用例目录</div>
+          <div id="dir-tree" class="text-sm">加载中...</div>
+        </div>
+        <!-- 用例列表 -->
+        <div>
+          <div class="text-sm text-muted mb-sm" id="dir-case-hint">请先选择目录</div>
+          <div class="table-wrap">
+            <table id="dir-case-table" style="display:none">
+              <thead>
+                <tr>
+                  <th width="30"><input type="checkbox" id="dir-select-all" onchange="toggleDirSelectAll()"></th>
+                  <th>用例标题</th>
+                  <th width="60">类型</th>
+                  <th width="60">优先级</th>
+                </tr>
+              </thead>
+              <tbody id="dir-case-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════ -->
+  <!-- 来源2：流水线用例                  -->
+  <!-- ════════════════════════════════════ -->
+  <div class="panel mb-md" id="source-pipeline" style="display:none">
+    <div class="panel-header">
+      <span>选择流水线中的已审批用例</span>
+    </div>
+    <div class="panel-body">
+      <div class="two-col">
+        <!-- 项目 → 流水线 -->
+        <div>
+          <div class="text-sm text-muted mb-sm">项目</div>
+          <select id="pl-project-select" onchange="onPipelineProjectChange()" style="width:100%;padding:6px 8px;font-size:13px;border:1px solid #d0d5dd;border-radius:6px;margin-bottom:12px">
+            <option value="">-- 选择项目 --</option>
+          </select>
+          <div class="text-sm text-muted mb-sm" id="pl-hint" style="display:none">流水线（已审批用例数）</div>
+          <div id="pl-pipeline-list" class="text-sm"></div>
+        </div>
+        <!-- 用例列表 -->
+        <div>
+          <div class="text-sm text-muted mb-sm" id="pl-case-hint">请先选择流水线</div>
+          <div class="table-wrap">
+            <table id="pl-case-table" style="display:none">
+              <thead>
+                <tr>
+                  <th width="30"><input type="checkbox" id="pl-select-all" onchange="togglePlSelectAll()"></th>
+                  <th>用例标题</th>
+                  <th width="60">类型</th>
+                  <th width="60">优先级</th>
+                </tr>
+              </thead>
+              <tbody id="pl-case-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════ -->
+  <!-- 提交行                            -->
+  <!-- ════════════════════════════════════ -->
+  <div class="flex gap-sm mb-md" style="align-items:center">
+    <button class="btn btn-primary" id="btn-start" onclick="startExecution()" disabled>▶ 开始执行</button>
+    <span class="text-sm text-muted" id="selected-count-text">未选择用例</span>
+  </div>
+
+  <!-- ====== 实时进度面板 ====== -->
+  <div class="panel mb-md" id="progress-panel" style="display:none">
+    <div class="panel-header"><span>⏳ 执行进度</span></div>
+    <div class="panel-body">
+      <div class="progress-bar mb-sm"><div class="progress-fill success" id="progress-fill" style="width:0%"></div></div>
+      <div class="flex-between">
+        <span class="text-sm text-muted" id="progress-text">准备中...</span>
+        <span class="text-sm">
+          <span class="badge badge-success">通过 <strong id="live-passed">0</strong></span>
+          <span class="badge badge-danger ml-sm">失败 <strong id="live-failed">0</strong></span>
+          <span class="badge badge-warning ml-sm">错误 <strong id="live-error">0</strong></span>
+        </span>
+      </div>
+      <div class="text-sm text-muted mt-sm" id="current-case-name"></div>
+    </div>
+  </div>
+
+  <!-- ====== 结果面板 ====== -->
+  <div class="panel mb-md" id="results-panel" style="display:none">
+    <div class="panel-header">
+      <span>📊 执行结果</span>
+      <button class="btn btn-sm btn-outline" onclick="retryFailed()">🔄 重试失败用例</button>
+    </div>
+    <div class="panel-body">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>用例</th><th width="60">状态</th><th width="60">耗时</th><th>失败原因</th><th width="40">截图</th></tr>
+          </thead>
+          <tbody id="results-tbody"><tr><td colspan="5" class="text-muted">加载中...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====== 缺陷面板 ====== -->
+  <div class="panel" id="defects-panel" style="display:none">
+    <div class="panel-header"><span>🐛 自动发现缺陷</span></div>
+    <div class="panel-body">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>缺陷标题</th><th width="60">严重程度</th><th width="60">状态</th><th>根因分析</th></tr>
+          </thead>
+          <tbody id="defects-tbody"><tr><td colspan="4" class="text-muted">加载中...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/execution_module.js?v=3"></script>
+{% endblock %}

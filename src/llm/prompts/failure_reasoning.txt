@@ -1,0 +1,24 @@
+你是测试失败分析专家。分析以下测试用例失败的原因并确定根本原因。
+
+测试用例：
+{test_case_json}
+
+执行结果：
+{execution_result_json}
+
+错误详情：
+{error_message}
+
+所有输出内容必须使用中文。
+
+分析并输出 JSON：
+{
+  "root_cause": "失败的具体原因（中文）",
+  "category": "测试脚本缺陷/应用缺陷/环境问题/数据问题/不稳定测试",
+  "is_defect": true/false,
+  "severity": "严重/高/中/低",
+  "suggested_fix": "如果是测试脚本问题，如何修复（中文）",
+  "confidence": 0.0-1.0
+}
+
+只输出 JSON 对象，不要输出其他文本。

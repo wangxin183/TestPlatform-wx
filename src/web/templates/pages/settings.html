@@ -1,0 +1,249 @@
+{% extends "base.html" %}
+{% block title %}项目设置 - TestPlatform{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h2>⚙️ 项目设置</h2>
+</div>
+
+<div class="tabs">
+  <button class="tab active" onclick="switchTab('env')">🌐 测试环境</button>
+  <button class="tab" onclick="switchTab('notif')">🔔 通知配置</button>
+</div>
+
+<!-- Environments Tab -->
+<div id="tab-env">
+  <div class="page-actions" style="margin-bottom:16px;">
+    <button class="btn btn-primary" onclick="showEnvForm()">+ 添加环境</button>
+  </div>
+  <div id="env-list" class="card-list"><p class="loading-text">加载中...</p></div>
+</div>
+
+<!-- Notifications Tab -->
+<div id="tab-notif" style="display:none;">
+  <div class="page-actions" style="margin-bottom:16px;">
+    <button class="btn btn-primary" onclick="showNotifForm()">+ 添加通知</button>
+  </div>
+  <div id="notif-list" class="card-list"><p class="loading-text">加载中...</p></div>
+</div>
+
+<!-- Environment Modal -->
+<div id="env-modal" class="modal" style="display:none;">
+  <div class="modal-overlay" onclick="closeEnvForm()"></div>
+  <div class="modal-content">
+    <div class="modal-header">
+      <span id="env-form-title">添加环境</span>
+      <button class="btn-close" onclick="closeEnvForm()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="env-edit-id">
+      <div class="form-group"><label>环境名称 *</label><input id="env-name" placeholder="例如：测试环境 / 预发布 / 生产"></div>
+      <div class="form-group"><label>Web URL</label><input id="env-web-url" placeholder="https://test.example.com"></div>
+      <div class="form-group"><label>API Base URL</label><input id="env-api-url" placeholder="https://api-test.example.com"></div>
+      <div class="form-group"><label>环境变量 (JSON)</label><textarea id="env-vars" placeholder='{"username": "admin"}'>{"username": "admin"}</textarea></div>
+      <div class="form-group"><label>描述</label><input id="env-desc" placeholder="环境说明"></div>
+      <div class="form-group"><label><input type="checkbox" id="env-default"> 设为默认环境</label></div>
+      <div style="display:flex; gap:8px; justify-content:flex-end;">
+        <button class="btn" onclick="closeEnvForm()">取消</button>
+        <button class="btn btn-primary" onclick="saveEnv()">保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Notification Modal -->
+<div id="notif-modal" class="modal" style="display:none;">
+  <div class="modal-overlay" onclick="closeNotifForm()"></div>
+  <div class="modal-content">
+    <div class="modal-header">
+      <span id="notif-form-title">添加通知</span>
+      <button class="btn-close" onclick="closeNotifForm()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="notif-edit-id">
+      <div class="form-group"><label>通知名称 *</label><input id="notif-name" placeholder="例如：钉钉群通知"></div>
+      <div class="form-group"><label>通知渠道 *</label>
+        <select id="notif-channel">
+          <option value="webhook">Webhook</option>
+          <option value="email">邮件</option>
+          <option value="feishu">飞书</option>
+          <option value="dingtalk">钉钉</option>
+          <option value="wecom">企业微信</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Webhook URL / 邮箱地址</label><input id="notif-target" placeholder="https://hooks.example.com/webhook"></div>
+      <div class="form-group"><label>触发事件</label>
+        <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:4px;">
+          <label><input type="checkbox" class="notif-event" value="pipeline_completed"> 流水线完成</label>
+          <label><input type="checkbox" class="notif-event" value="pipeline_failed"> 流水线失败</label>
+          <label><input type="checkbox" class="notif-event" value="review_ready"> 用例待评审</label>
+          <label><input type="checkbox" class="notif-event" value="defect_critical"> 严重缺陷</label>
+        </div>
+      </div>
+      <div class="form-group"><label><input type="checkbox" id="notif-enabled" checked> 启用</label></div>
+      <div style="display:flex; gap:8px; justify-content:flex-end;">
+        <button class="btn" onclick="closeNotifForm()">取消</button>
+        <button class="btn btn-primary" onclick="saveNotif()">保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const PROJECT_ID = window.location.pathname.split('/')[2];
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-env').style.display = tab === 'env' ? 'block' : 'none';
+  document.getElementById('tab-notif').style.display = tab === 'notif' ? 'block' : 'none';
+  event.target.classList.add('active');
+}
+
+// ═══════ Environments ═══════
+async function loadEnvs() {
+  const c = document.getElementById('env-list');
+  try {
+    const resp = await api.get(`/projects/${PROJECT_ID}/environments`);
+    if (!resp.data?.length) { c.innerHTML = '<div class="empty-state">暂无环境配置</div>'; return; }
+    c.innerHTML = resp.data.map(e => `
+      <div class="card-item">
+        <div class="card-info">
+          <span class="card-title">${e.is_default ? '⭐ ' : ''}${esc(e.name)}</span>
+          <span class="card-meta">Web: ${e.web_url || '-'} | API: ${e.api_base_url || '-'}</span>
+          <span class="card-meta">${e.description || ''}</span>
+        </div>
+        <div class="card-actions">
+          <button class="btn btn-sm" onclick="editEnv('${e.id}')">✏️</button>
+          <button class="btn btn-sm btn-danger" onclick="delEnv('${e.id}')">🗑️</button>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) { c.innerHTML = `<div class="error-state">加载失败: ${e.message}</div>`; }
+}
+
+function showEnvForm() {
+  document.getElementById('env-form-title').textContent = '添加环境';
+  ['env-edit-id','env-name','env-web-url','env-api-url','env-desc'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('env-vars').value = '{}';
+  document.getElementById('env-default').checked = false;
+  document.getElementById('env-modal').style.display = 'flex';
+}
+
+async function editEnv(id) {
+  const resp = await api.get(`/projects/${PROJECT_ID}/environments`);
+  const e = resp.data.find(x => x.id === id); if (!e) return;
+  document.getElementById('env-form-title').textContent = '编辑环境';
+  document.getElementById('env-edit-id').value = e.id;
+  document.getElementById('env-name').value = e.name;
+  document.getElementById('env-web-url').value = e.web_url || '';
+  document.getElementById('env-api-url').value = e.api_base_url || '';
+  document.getElementById('env-vars').value = JSON.stringify(e.variables_json || {}, null, 2);
+  document.getElementById('env-desc').value = e.description || '';
+  document.getElementById('env-default').checked = e.is_default;
+  document.getElementById('env-modal').style.display = 'flex';
+}
+
+function closeEnvForm() { document.getElementById('env-modal').style.display = 'none'; }
+
+async function saveEnv() {
+  const id = document.getElementById('env-edit-id').value;
+  let vars = {};
+  try { vars = JSON.parse(document.getElementById('env-vars').value); } catch(e) { alert('环境变量JSON格式错误'); return; }
+  const body = {
+    name: document.getElementById('env-name').value.trim(),
+    web_url: document.getElementById('env-web-url').value.trim(),
+    api_base_url: document.getElementById('env-api-url').value.trim(),
+    variables_json: vars,
+    description: document.getElementById('env-desc').value.trim(),
+    is_default: document.getElementById('env-default').checked,
+  };
+  if (!body.name) { alert('环境名称不能为空'); return; }
+  try {
+    if (id) await api.put(`/environments/${id}`, body);
+    else await api.post(`/projects/${PROJECT_ID}/environments`, body);
+    closeEnvForm(); loadEnvs();
+  } catch(e) { alert(`保存失败: ${e.message}`); }
+}
+
+async function delEnv(id) {
+  if (!confirm('确认删除此环境？')) return;
+  try { await api.del(`/environments/${id}`); loadEnvs(); }
+  catch(e) { alert(`删除失败: ${e.message}`); }
+}
+
+// ═══════ Notifications ═══════
+async function loadNotifs() {
+  const c = document.getElementById('notif-list');
+  try {
+    const resp = await api.get(`/projects/${PROJECT_ID}/notifications`);
+    if (!resp.data?.length) { c.innerHTML = '<div class="empty-state">暂无通知配置</div>'; return; }
+    c.innerHTML = resp.data.map(n => `
+      <div class="card-item">
+        <div class="card-info">
+          <span class="card-title"><span class="status-dot ${n.enabled ? 'active' : 'inactive'}"></span>${esc(n.name)}</span>
+          <span class="card-meta">渠道: ${n.channel} | 事件: ${(n.events_json||[]).join(', ')}</span>
+        </div>
+        <div class="card-actions">
+          <button class="btn btn-sm" onclick="editNotif('${n.id}')">✏️</button>
+          <button class="btn btn-sm btn-danger" onclick="delNotif('${n.id}')">🗑️</button>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) { c.innerHTML = `<div class="error-state">加载失败: ${e.message}</div>`; }
+}
+
+function showNotifForm() {
+  document.getElementById('notif-form-title').textContent = '添加通知';
+  ['notif-edit-id','notif-name','notif-target'].forEach(id => document.getElementById(id).value = '');
+  document.querySelectorAll('.notif-event').forEach(cb => cb.checked = false);
+  document.getElementById('notif-enabled').checked = true;
+  document.getElementById('notif-modal').style.display = 'flex';
+}
+
+async function editNotif(id) {
+  const resp = await api.get(`/projects/${PROJECT_ID}/notifications`);
+  const n = resp.data.find(x => x.id === id); if (!n) return;
+  document.getElementById('notif-form-title').textContent = '编辑通知';
+  document.getElementById('notif-edit-id').value = n.id;
+  document.getElementById('notif-name').value = n.name;
+  document.getElementById('notif-channel').value = n.channel;
+  document.getElementById('notif-target').value = n.channel === 'email' ? (n.email_to || '') : (n.webhook_url || '');
+  document.getElementById('notif-enabled').checked = n.enabled;
+  document.querySelectorAll('.notif-event').forEach(cb => cb.checked = (n.events_json || []).includes(cb.value));
+  document.getElementById('notif-modal').style.display = 'flex';
+}
+
+function closeNotifForm() { document.getElementById('notif-modal').style.display = 'none'; }
+
+async function saveNotif() {
+  const id = document.getElementById('notif-edit-id').value;
+  const channel = document.getElementById('notif-channel').value;
+  const target = document.getElementById('notif-target').value.trim();
+  const body = {
+    name: document.getElementById('notif-name').value.trim(),
+    channel: channel,
+    webhook_url: channel === 'email' ? '' : target,
+    email_to: channel === 'email' ? target : '',
+    events_json: Array.from(document.querySelectorAll('.notif-event:checked')).map(cb => cb.value),
+    enabled: document.getElementById('notif-enabled').checked,
+  };
+  if (!body.name) { alert('名称不能为空'); return; }
+  try {
+    if (id) await api.put(`/notifications/${id}`, body);
+    else await api.post(`/projects/${PROJECT_ID}/notifications`, body);
+    closeNotifForm(); loadNotifs();
+  } catch(e) { alert(`保存失败: ${e.message}`); }
+}
+
+async function delNotif(id) {
+  if (!confirm('确认删除此通知？')) return;
+  try { await api.del(`/notifications/${id}`); loadNotifs(); }
+  catch(e) { alert(`删除失败: ${e.message}`); }
+}
+
+function esc(s) { return (s||'').replace(/[&<>]/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;'})[m]); }
+
+loadEnvs(); loadNotifs();
+</script>
+{% endblock %}

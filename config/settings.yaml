@@ -1,0 +1,52 @@
+app:
+  name: "TestPlatform"
+  version: "0.1.0"
+  debug: true
+  # secret_key is now set via SECRET_KEY environment variable
+
+server:
+  host: "0.0.0.0"
+  port: 8999
+  cors_origins: ["*"]
+
+database:
+  url: "sqlite+aiosqlite:///storage/test_platform.db"
+  echo_sql: false
+
+redis:
+  url: "redis://localhost:6379/0"
+
+celery:
+  broker_url: "redis://localhost:6379/1"
+  result_backend: "redis://localhost:6379/2"
+  task_track_started: true
+
+storage:
+  root: "storage"
+  documents_dir: "storage/documents"
+  screenshots_dir: "storage/screenshots"
+  reports_dir: "storage/reports"
+
+logs:
+  dir: "logs"
+  level: "INFO"
+  rotation: "10 MB"
+  retention: "30 days"
+
+llm:
+  default_provider: "deepseek"
+  per_pipeline_budget_usd: 3.0
+  max_retries: 2
+  request_timeout_seconds: 120
+
+pipeline:
+  max_retries_per_case: 3
+  execution_timeout_minutes: 60
+
+visual:
+  enabled: true
+  ocr_language: "chi_sim+eng"
+  tesseract_cmd: "tesseract"
+  comparison_threshold: 0.95
+  save_diff_images: true
+  diff_images_dir: "storage/screenshots/diffs"

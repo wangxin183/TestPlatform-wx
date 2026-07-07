@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Skills 管理 - TestPlatform{% endblock %}
+{% block head_extra %}{% endblock %}
+{% block content %}
+<div class="rv-page">
+  <header class="rv-header">
+    <div class="rv-header-left">
+      <div class="rv-header-icon-wrap">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </div>
+      <div>
+        <h1 class="rv-header-title">Skills 管理</h1>
+        <p class="rv-header-sub">AI Prompt Skills for Test Pipeline</p>
+      </div>
+    </div>
+    <div class="rv-header-right" style="display:flex;gap:8px">
+      <button class="rv-btn rv-btn-outline" onclick="showAIGenerateModal()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        AI 生成
+      </button>
+      <button class="rv-btn rv-btn-accent" onclick="showTemplateModal()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        模板创建
+      </button>
+    </div>
+  </header>
+  <div class="rv-page-body">
+    <div class="rv-table-wrap rv-card">
+      <table class="rv-table rv-table--nosticky">
+        <thead><tr>
+          <th>Skill 名称</th>
+          <th>描述</th>
+          <th class="rv-th-num">大小</th>
+          <th class="rv-th-tag">更新时间</th>
+          <th class="rv-th-act">操作</th>
+        </tr></thead>
+        <tbody id="skills-list">
+          <tr><td colspan="5" class="rv-empty">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/skills.js?v=1"></script>
+{% endblock %}

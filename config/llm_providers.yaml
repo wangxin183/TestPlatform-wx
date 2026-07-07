@@ -1,0 +1,76 @@
+providers:
+  deepseek:
+    api_base: "https://api.deepseek.com/v1"
+    api_key_env: "DEEPSEEK_API_KEY"
+    models:
+      - name: "deepseek-v4-pro" 
+        cost_per_1k_input: 0.00014
+        cost_per_1k_output: 0.00028
+        capabilities: ["high_complexity", "json_mode", "large_context"]
+      - name: "deepseek-v4-flash"
+        cost_per_1k_input: 0.00007
+        cost_per_1k_output: 0.00014
+        capabilities: ["medium_complexity", "json_mode"]
+
+  openai:
+    api_base: "https://api.openai.com/v1"
+    api_key_env: "OPENAI_API_KEY"
+    models:
+      - name: "gpt-4o"
+        cost_per_1k_input: 0.00250
+        cost_per_1k_output: 0.01000
+        capabilities: ["high_complexity", "json_mode", "vision", "large_context"]
+      - name: "gpt-4o-mini"
+        cost_per_1k_input: 0.00015
+        cost_per_1k_output: 0.00060
+        capabilities: ["medium_complexity", "json_mode"]
+
+  anthropic:
+    api_base: "https://api.anthropic.com/v1"
+    api_key_env: "ANTHROPIC_API_KEY"
+    models:
+      - name: "claude-sonnet-4-20250514"
+        cost_per_1k_input: 0.00300
+        cost_per_1k_output: 0.01500
+        capabilities: ["high_complexity", "vision", "large_context", "long_output"]
+
+router:
+  default_provider: "deepseek"
+  default_model: "deepseek-v4-pro"
+
+  rules:
+    - id: "task_complexity_routing"
+      priority: 1
+      description: "Route based on task complexity tag"
+      conditions:
+        - when: {task_tag: ["ingestion"]}
+          route: {provider: "deepseek", model: "deepseek-v4-flash"}
+        - when: {task_tag: ["parsing"]}
+          route: {provider: "deepseek", model: "deepseek-v4-flash"}
+        - when: {task_tag: ["analysis"], complexity: "high"}
+          route: {provider: "deepseek", model: "deepseek-v4-pro"}
+        - when: {task_tag: ["generation"], complexity: "high"}
+          route: {provider: "deepseek", model: "deepseek-v4-pro"}
+        - when: {task_tag: ["failure_reasoning"]}
+          route: {provider: "deepseek", model: "deepseek-v4-flash"}
+        - when: {task_tag: ["regression_selection"]}
+          route: {provider: "deepseek", model: "deepseek-v4-flash"}
+
+    - id: "budget_enforcement"
+      priority: 2
+      description: "Downgrade to cheaper model when budget is low"
+      conditions:
+        - when: {budget_remaining_pct: "<20"}
+          action:
+            downgrade: true
+            fallback_provider: "deepseek"
+            fallback_model: "deepseek-v4-flash"
+
+    - id: "failover"
+      priority: 3
+      description: "Fail over to next cheapest capable provider"
+      conditions:
+        - when: {primary_failed: true}
+          action:
+            retry_count: 2
+            strategy: "next_cheapest_capable"

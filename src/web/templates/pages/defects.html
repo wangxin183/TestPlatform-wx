@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}缺陷记录 - TestPlatform{% endblock %}
+{% block content %}
+<div class="content-header">
+  <div>
+    <div class="breadcrumb"><a href="/projects">项目管理</a> <span>/</span> <span>缺陷记录</span></div>
+    <h1>缺陷记录</h1>
+  </div>
+</div>
+<div class="content-body fade-in">
+  <div class="flex gap-sm mb-md">
+    <select class="form-select" style="width:140px" id="filter-severity" onchange="loadDefects()">
+      <option value="">全部严重度</option><option value="critical">严重</option><option value="high">高</option><option value="medium">中</option><option value="low">低</option>
+    </select>
+    <select class="form-select" style="width:140px" id="filter-status" onchange="loadDefects()">
+      <option value="">全部状态</option><option value="open">待处理</option><option value="in_progress">处理中</option><option value="fixed">已修复</option>
+    </select>
+  </div>
+  <div class="table-wrap"><table><thead><tr><th>标题</th><th>严重度</th><th>状态</th><th>关联用例</th><th>创建时间</th></tr></thead>
+  <tbody id="defects-list"><tr><td colspan="5" class="text-muted">加载中...</td></tr></tbody></table></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/defects.js?v=2"></script>
+{% endblock %}

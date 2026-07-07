@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}测试用例评审 - TestPlatform{% endblock %}
+{% block content %}
+<div class="content-header">
+  <div>
+    <div class="breadcrumb"><a href="/projects">项目管理</a> <span>/</span> <a id="back-link" href="#">项目</a> <span>/</span> <span>用例评审</span></div>
+    <h1>📋 用例评审</h1>
+  </div>
+</div>
+
+<!-- Review Progress Bar -->
+<div class="review-progress-bar" id="review-progress">
+  <div class="progress-stats">
+    <span class="progress-stat"><strong id="stat-total">0</strong> 总计</span>
+    <span class="progress-stat reviewed"><strong id="stat-reviewed">0</strong> 已审</span>
+    <span class="progress-stat approved"><strong id="stat-approved">0</strong> 通过</span>
+    <span class="progress-stat rejected"><strong id="stat-rejected">0</strong> 驳回</span>
+    <span class="progress-stat pending"><strong id="stat-pending">0</strong> 待审</span>
+  </div>
+  <div class="progress-bar"><div class="progress-fill" id="review-fill" style="width:0%"></div></div>
+</div>
+
+<div class="review-layout">
+  <!-- Left: Group Navigation -->
+  <div class="review-sidebar" id="review-sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-title">🔍 快速过滤</div>
+      <select class="form-select" style="width:100%; margin-bottom:6px" id="filter-priority" onchange="applyFilters()">
+        <option value="">全部优先级</option>
+        <option value="高,严重">⚠️ 高/严重</option>
+        <option value="严重">严重</option>
+        <option value="高">高</option>
+        <option value="中">中</option>
+        <option value="低">低</option>
+      </select>
+      <select class="form-select" style="width:100%; margin-bottom:6px" id="filter-status" onchange="applyFilters()">
+        <option value="pending_review">待评审</option>
+        <option value="">全部状态</option>
+        <option value="approved">已通过</option>
+        <option value="rejected">已驳回</option>
+      </select>
+      <input class="form-input" style="width:100%" placeholder="搜索用例标题..." id="filter-search" oninput="applyFilters()">
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-title">📂 按类型分组</div>
+      <div id="group-nav"></div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-title">⚡ 快速操作</div>
+      <button class="btn btn-success btn-sm" style="width:100%; margin-bottom:4px" onclick="batchByFilter('approve', '低')">✓ 通过全部低优先级</button>
+      <button class="btn btn-success btn-sm" style="width:100%; margin-bottom:4px" onclick="batchByFilter('approve', '中,低')">✓ 通过中+低优先级</button>
+      <button class="btn btn-outline btn-sm" style="width:100%; margin-bottom:4px" id="btn-advance" onclick="advancePipeline()">▶ 进入下一阶段</button>
+    </div>
+  </div>
+
+  <!-- Right: Case List + Detail -->
+  <div class="review-main">
+    <!-- High Risk Alert -->
+    <div id="high-risk-alert" class="high-risk-section" style="display:none">
+      <div class="high-risk-header">⚠️ 重点关注 <span id="high-risk-count">0</span> 条高风险用例</div>
+      <div id="high-risk-list"></div>
+    </div>
+
+    <!-- Batch toolbar -->
+    <div class="review-toolbar">
+      <label class="checkbox-label"><input type="checkbox" id="select-all" onchange="toggleSelectAll()"> 全选</label>
+      <span class="selected-count" id="selected-count">已选 0 条</span>
+      <div class="toolbar-actions">
+        <button class="btn btn-success btn-sm" onclick="batchAction('approve')">✓ 批量通过</button>
+        <button class="btn btn-danger btn-sm" onclick="batchAction('reject')">✗ 批量驳回</button>
+      </div>
+    </div>
+
+    <!-- Case Table -->
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th style="width:32px"></th>
+          <th>标题</th>
+          <th style="width:60px">优先级</th>
+          <th style="width:50px">分数</th>
+          <th style="width:60px">状态</th>
+          <th style="width:60px">操作</th>
+        </tr></thead>
+        <tbody id="test-cases-list"><tr><td colspan="6" class="text-muted">加载中...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Detail Modal -->
+<div class="modal-overlay" id="case-detail-modal">
+  <div class="modal" style="max-width:720px">
+    <div class="modal-header">
+      <span id="case-detail-title">用例详情</span>
+      <button class="btn btn-sm btn-outline" onclick="Modal.close('case-detail-modal')">✕</button>
+    </div>
+    <div class="modal-body" id="case-detail-body"></div>
+    <div class="modal-footer" id="case-detail-footer">
+      <select class="form-select" id="reject-reason-select" style="width:160px; margin-right:8px;">
+        <option value="">驳回原因（可选）</option>
+        <option value="steps_incomplete">步骤不完整</option>
+        <option value="description_vague">描述模糊</option>
+        <option value="wrong_priority">优先级错误</option>
+        <option value="wrong_type">类型错误</option>
+        <option value="duplicate">重复用例</option>
+        <option value="other">其他</option>
+      </select>
+      <textarea class="form-textarea" id="review-comment" placeholder="评审意见..." rows="2"></textarea>
+      <button class="btn btn-outline btn-sm" id="btn-edit-mode" onclick="toggleEditMode()">✏️ 编辑</button>
+      <button class="btn btn-danger btn-sm" onclick="reviewCase('reject')">驳回</button>
+      <button class="btn btn-success btn-sm" onclick="reviewCase('approve')">通过</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/test_cases.js?v=3"></script>
+{% endblock %}

@@ -1,0 +1,33 @@
+你是性能测试脚本生成专家。根据以下测试需求，生成 Locust 性能测试脚本和测试方案。
+
+## 测试需求
+标题: {test_case_title}
+描述: {test_case_description}
+步骤:
+{test_case_steps}
+
+目标 URL: {target_url}
+
+## 输出要求
+
+### 1. 测试方案（JSON 格式）
+{
+  "test_scenarios": [
+    {"name": "场景名称", "description": "场景描述", "endpoint": "/api/path", "method": "GET"}
+  ],
+  "concurrency": {"min_users": 10, "max_users": 100, "ramp_up_seconds": 60},
+  "duration": {"steady_state_seconds": 300, "cool_down_seconds": 30},
+  "metrics": ["response_time_p95", "error_rate", "throughput"],
+  "success_criteria": {"p95_response_time_ms": 500, "error_rate_pct": 1.0},
+  "risk_areas": ["高并发下的数据库连接池耗尽"],
+  "summary": "性能测试方案简述（中文）"
+}
+
+### 2. Locust 脚本（Python）
+- 继承 locust.HttpUser
+- 包含 @task 装饰的测试任务
+- 使用 between() 设置 wait_time
+- 请求中包含断言（检查状态码和响应时间）
+- 使用中文注释
+
+只输出 JSON 对象（测试方案），不要输出其他内容。

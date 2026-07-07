@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m compileall -q src/services/agent_cli.py src/services/feishu_notifier.py src/services/knowbase_loader.py src/services/requirement_analysis_service.py src/utils/analysis_logger.py src/utils/document_converter.py src/api/v1/requirement_analysis.py)"
+    ]
+  }
+}
