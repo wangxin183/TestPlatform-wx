@@ -1,9 +1,9 @@
-"""知识库按需加载器 — 按需加载 Obsidian 笔记和历史缺陷数据。
+"""知识库按需加载器 — 语义检索优先，关键词匹配兜底。
 
 按需加载原则：
-- 只加载需求文档中明确提到的模块，不加载无关模块
-- 先从文档内容中识别模块名，再加载对应的 Obsidian 笔记
-- 历史缺陷数据按模块关键词匹配，只提取相关缺陷
+- 优先使用自包含向量索引（顶层块级 Top-K）注入与需求语义相关的笔记片段
+- embedding / 索引不可用时，降级到模块关键词匹配（历史行为）
+- 历史缺陷数据仍按模块关键词匹配摘要
 
 Usage:
     from src.services.knowbase_loader import KnowledgeBaseLoader
@@ -13,7 +13,6 @@ Usage:
         doc_content="需求文档 Markdown 内容",
         platform_type="ios",
     )
-    # context 是一段 Markdown 文本，可直接注入 Agent 的 {knowledge_context}
 """
 
 from __future__ import annotations
@@ -22,12 +21,14 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from src.core.config import settings
+from src.services.knowbase_index import KnowledgeBaseIndex
 from src.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
 # ============================================================
-# 配置常量
+# 兼容常量（关键词兜底仍使用；新配置以 settings.knowledge_base 为准）
 # ============================================================
 
 OBSIDIAN_VAULT_PATH = Path(
@@ -36,9 +37,6 @@ OBSIDIAN_VAULT_PATH = Path(
 
 BUGLIST_PATH = Path("/Users/xiguawang/TestPlatform-wx/data/ACN_buglist.xlsx")
 
-# Obsidian Vault 中已知的模块目录 → 对应的笔记路径映射
-# key: 中文模块名（或拼音/英文别名）
-# value: Vault 内的路径列表
 MODULE_NOTE_MAP: dict[str, list[str]] = {
     "会员": ["会员体系/FUN会员.md"],
     "fun会员": ["会员体系/FUN会员.md"],
@@ -83,10 +81,9 @@ MODULE_NOTE_MAP: dict[str, list[str]] = {
     "通用": ["通用功能/通用功能.md", "通用功能/安装启动.md", "通用功能/URL_Schemes.md"],
 }
 
-# 最大加载的笔记数量，防止上下文过长
 MAX_NOTES_TO_LOAD = 5
-MAX_NOTE_CONTENT_LENGTH = 3000  # 每篇笔记最大字符数
-MAX_DEFECTS_TO_SHOW = 50  # 最多展示的缺陷数量
+MAX_NOTE_CONTENT_LENGTH = 3000
+MAX_DEFECTS_TO_SHOW = 50
 
 
 @dataclass
@@ -97,17 +94,27 @@ class KnowledgeContext:
     defect_summary: str = ""
     total_defects: int = 0
     mentioned_modules: list[str] = field(default_factory=list)
+    retrieval_mode: str = "none"  # semantic | keyword | none
 
     def to_prompt_text(self) -> str:
         """将加载的知识上下文组装为适合注入 Agent 的 Markdown 文本"""
         parts = []
 
         if self.note_contents:
+            mode_label = (
+                "语义检索相关片段"
+                if self.retrieval_mode == "semantic"
+                else "关键词匹配模块笔记"
+            )
             parts.append("## 知识库参考（来自 Obsidian）")
-            parts.append("以下是与本次需求相关的已有功能模块信息：\n")
+            parts.append(
+                "以下是与本次需求相关的**历史产品笔记**，仅用于术语/交互习惯参考。"
+                "**不得**据此新增 FR/NFR，不得把知识库内容当作需求来源。\n"
+            )
             for note_path, content in self.note_contents.items():
                 module_name = Path(note_path).stem
                 parts.append(f"### {module_name}")
+                parts.append(f"> 来源：`{note_path}`")
                 parts.append(content)
                 parts.append("")
             parts.append("---\n")
@@ -127,129 +134,181 @@ class KnowledgeContext:
         return "\n".join(parts)
 
 
-# ============================================================
-# KnowledgeBaseLoader
-# ============================================================
-
 class KnowledgeBaseLoader:
     """按需加载 Obsidian 知识库和历史缺陷数据。"""
 
-    def __init__(self, vault_path: Path | None = None, buglist_path: Path | None = None):
-        self.vault_path = vault_path or OBSIDIAN_VAULT_PATH
-        self.buglist_path = buglist_path or BUGLIST_PATH
+    def __init__(
+        self,
+        vault_path: Path | None = None,
+        buglist_path: Path | None = None,
+        index: KnowledgeBaseIndex | None = None,
+    ):
+        kb = settings.knowledge_base
+        if vault_path is not None:
+            self.vault_path = vault_path
+        elif kb.vault_path:
+            self.vault_path = Path(kb.vault_path)
+        else:
+            self.vault_path = OBSIDIAN_VAULT_PATH
+
+        if buglist_path is not None:
+            self.buglist_path = buglist_path
+        elif kb.buglist_path:
+            p = Path(kb.buglist_path)
+            self.buglist_path = p if p.is_absolute() else Path(settings.resolve_path(str(p)))
+        else:
+            self.buglist_path = BUGLIST_PATH
+
+        self._kb_settings = kb
+        self._index = index
+
+    def _get_index(self) -> KnowledgeBaseIndex | None:
+        if not self._kb_settings.enabled:
+            return None
+        if self._index is None:
+            try:
+                self._index = KnowledgeBaseIndex.from_settings()
+                # 允许运行时覆盖 vault（单元测试 / 显式构造）
+                if self.vault_path and self.vault_path != self._index.vault_path:
+                    self._index.vault_path = self.vault_path
+            except Exception as exc:
+                logger.warning("knowbase_index_init_failed", error=str(exc))
+                return None
+        return self._index
 
     def build_knowledge_context(
         self,
         doc_content: str,
         platform_type: str = "",
     ) -> KnowledgeContext:
-        """分析文档内容，按需构建知识上下文。
-
-        Args:
-            doc_content: 需求文档的 Markdown 内容
-            platform_type: 目标平台类型（用于过滤平台相关的缺陷）
-
-        Returns:
-            KnowledgeContext（包含加载的笔记内容和缺陷摘要）
-        """
+        """分析文档内容，按需构建知识上下文。"""
         ctx = KnowledgeContext()
-
-        # 步骤 1：识别文档中提到的模块
         ctx.mentioned_modules = self._detect_modules(doc_content)
-        logger.info(
-            "knowledge_modules_detected",
-            modules=ctx.mentioned_modules,
-            doc_len=len(doc_content),
-        )
 
+        # 1) 语义检索优先
+        if self._try_semantic_retrieve(ctx, doc_content):
+            ctx.retrieval_mode = "semantic"
+            logger.info(
+                "knowledge_semantic_loaded",
+                notes=len(ctx.loaded_notes),
+                modules=ctx.mentioned_modules[:10],
+            )
+        elif self._kb_settings.keyword_fallback:
+            # 2) 关键词兜底
+            self._keyword_retrieve(ctx)
+            ctx.retrieval_mode = "keyword" if ctx.note_contents else "none"
+            logger.info(
+                "knowledge_keyword_fallback",
+                modules=ctx.mentioned_modules,
+                loaded=len(ctx.note_contents),
+            )
+        else:
+            logger.info("knowledge_no_context", reason="semantic_miss_and_fallback_disabled")
+
+        # 3) 缺陷摘要（仍按模块词）
+        if ctx.mentioned_modules:
+            ctx.total_defects, ctx.defect_summary = self._load_defects(
+                ctx.mentioned_modules, platform_type
+            )
+            logger.info("knowledge_defects_loaded", total=ctx.total_defects)
+
+        return ctx
+
+    def _try_semantic_retrieve(self, ctx: KnowledgeContext, doc_content: str) -> bool:
+        index = self._get_index()
+        if index is None or not index.is_available():
+            return False
+
+        try:
+            if index.block_count() == 0:
+                index.ensure_index(force=False)
+            # 轻量增量：每次请求尝试一次（内部按 hash 跳过未变更文件）
+            index.ensure_index(force=False)
+
+            # 查询：文档前部 + 章节标题 + 已识别模块名（避免整篇超长，并提高相关性）
+            headings = re.findall(r"^#{1,3}\s+(.+)$", doc_content, flags=re.MULTILINE)
+            query_parts = [doc_content[:1800]]
+            if headings:
+                query_parts.append("章节：" + "；".join(h.strip() for h in headings[:20]))
+            if ctx.mentioned_modules:
+                query_parts.append("关键模块：" + "、".join(ctx.mentioned_modules[:12]))
+            query = "\n".join(query_parts)
+
+            hits = index.search(
+                query,
+                top_k=self._kb_settings.top_k,
+                min_score=self._kb_settings.min_score,
+            )
+            if not hits:
+                return False
+
+            # 按笔记聚合，控制总上下文长度
+            max_chars = self._kb_settings.max_context_chars
+            used = 0
+            note_order: list[str] = []
+            note_chunks: dict[str, list[str]] = {}
+
+            for hit in hits:
+                snippet = hit.content.strip()
+                if hit.heading:
+                    snippet = f"**{hit.heading}**\n{snippet}"
+                snippet = f"{snippet}\n\n（相关度 {hit.score:.2f}）"
+                if used + len(snippet) > max_chars and note_order:
+                    break
+                if hit.note_path not in note_chunks:
+                    note_chunks[hit.note_path] = []
+                    note_order.append(hit.note_path)
+                note_chunks[hit.note_path].append(snippet)
+                used += len(snippet)
+
+            ctx.loaded_notes = note_order
+            ctx.note_contents = {
+                path: "\n\n".join(note_chunks[path]) for path in note_order
+            }
+            return bool(ctx.note_contents)
+        except Exception as exc:
+            logger.warning("knowledge_semantic_failed", error=str(exc)[:300])
+            return False
+
+    def _keyword_retrieve(self, ctx: KnowledgeContext) -> None:
         if not ctx.mentioned_modules:
-            logger.info("knowledge_no_modules_detected")
-            return ctx
-
-        # 步骤 2：加载对应的 Obsidian 笔记
+            return
         note_paths = self._resolve_note_paths(ctx.mentioned_modules)
         ctx.loaded_notes = note_paths[:MAX_NOTES_TO_LOAD]
         ctx.note_contents = self._load_notes(ctx.loaded_notes)
-        logger.info(
-            "knowledge_notes_loaded",
-            requested=len(note_paths),
-            loaded=len(ctx.note_contents),
-        )
-
-        # 步骤 3：加载相关缺陷数据
-        ctx.total_defects, ctx.defect_summary = self._load_defects(
-            ctx.mentioned_modules, platform_type
-        )
-        logger.info(
-            "knowledge_defects_loaded",
-            total=ctx.total_defects,
-        )
-
-        return ctx
 
     # ---- 模块检测 ----
 
     def _detect_modules(self, doc_content: str) -> list[str]:
-        """从文档内容中检测提到的模块名称。
-
-        遍历 MODULE_NOTE_MAP 中的关键词，检查是否在文档中出现。
-        返回去重后的模块名列表（按匹配长度降序排列，优先选择更具体的匹配）。
-        """
         found = set()
         content_lower = doc_content.lower()
-
         for keyword in MODULE_NOTE_MAP:
-            # 支持中文精确匹配和英文模糊匹配
             if keyword in doc_content or keyword.lower() in content_lower:
                 found.add(keyword)
-
-        # 按匹配长度降序排列（更具体的关键词优先）
         return sorted(found, key=lambda x: -len(x))
 
-    # ---- 笔记加载 ----
-
     def _resolve_note_paths(self, module_names: list[str]) -> list[str]:
-        """将模块名解析为 Obsidian Vault 中的笔记路径。
-
-        去重并返回唯一的笔记路径列表。
-        """
         seen = set()
         paths = []
         for name in module_names:
-            note_paths = MODULE_NOTE_MAP.get(name, [])
-            for p in note_paths:
+            for p in MODULE_NOTE_MAP.get(name, []):
                 if p not in seen:
                     seen.add(p)
                     paths.append(p)
         return paths
 
     def _load_notes(self, note_paths: list[str]) -> dict[str, str]:
-        """从 Obsidian Vault 中加载笔记内容。
-
-        每篇笔记截断至 MAX_NOTE_CONTENT_LENGTH 字符，
-        避免注入过长内容。
-
-        Returns:
-            dict：note_path → content（截断后的 Markdown 文本）
-        """
         contents = {}
         for note_path in note_paths:
             full_path = self.vault_path / note_path
             try:
                 if not full_path.exists():
-                    logger.warning(
-                        "knowledge_note_not_found",
-                        path=str(full_path),
-                    )
+                    logger.warning("knowledge_note_not_found", path=str(full_path))
                     continue
-
                 raw = full_path.read_text(encoding="utf-8")
-                # 去掉 YAML frontmatter（--- ... ---）
                 raw = self._strip_frontmatter(raw)
-                # 截断
                 if len(raw) > MAX_NOTE_CONTENT_LENGTH:
                     raw = raw[:MAX_NOTE_CONTENT_LENGTH] + "\n\n...（内容已截断）"
-
                 contents[note_path] = raw
             except Exception as exc:
                 logger.error(
@@ -257,29 +316,20 @@ class KnowledgeBaseLoader:
                     path=str(full_path),
                     error=str(exc),
                 )
-
         return contents
 
     @staticmethod
     def _strip_frontmatter(raw: str) -> str:
-        """去除 Markdown 的 YAML frontmatter（--- ... ---）。"""
         match = re.match(r"^---\s*\n(.*?)\n---\s*\n(.*)", raw, re.DOTALL)
         if match:
             return match.group(2).strip()
         return raw
-
-    # ---- 缺陷加载 ----
 
     def _load_defects(
         self,
         module_names: list[str],
         platform_type: str = "",
     ) -> tuple[int, str]:
-        """从历史缺陷 Excel 中按模块关键词加载缺陷摘要。
-
-        Returns:
-            (total_matching_defects, summary_text)
-        """
         if not module_names:
             return 0, ""
 
@@ -297,49 +347,41 @@ class KnowledgeBaseLoader:
             if not ws:
                 return 0, ""
 
-            # 读取所有行（跳过表头）
             rows = list(ws.iter_rows(values_only=True))
             if len(rows) <= 1:
                 return 0, ""
 
             headers = [str(h).lower() if h else "" for h in rows[0]]
-            summary_col = 1  # 默认第二列是摘要
+            summary_col = 1
             for i, h in enumerate(headers):
                 if "摘要" in h or "summary" in h or "描述" in h:
                     summary_col = i
                     break
 
-            # 匹配模块关键词
             matched = []
             for row in rows[1:]:
-                summary = str(row[summary_col]) if len(row) > summary_col and row[summary_col] else ""
+                summary = (
+                    str(row[summary_col])
+                    if len(row) > summary_col and row[summary_col]
+                    else ""
+                )
                 if not summary:
                     continue
-
                 for name in module_names:
-                    # 模块名匹配（大小写不敏感）
                     if name.lower() in summary.lower():
                         matched.append(summary)
                         break
-
                 if len(matched) >= MAX_DEFECTS_TO_SHOW:
                     break
 
             wb.close()
-
             total = len(matched)
             if total == 0:
                 return 0, "（未找到与该模块相关的历史缺陷）"
 
-            # 生成简要摘要（取前 30 条用于 Agent 上下文）
-            summary_lines = [
-                f"- {s[:120]}" for s in matched[:30]
-            ]
+            summary_lines = [f"- {s[:120]}" for s in matched[:30]]
             return total, "\n".join(summary_lines)
 
         except Exception as exc:
-            logger.error(
-                "knowledge_buglist_load_error",
-                error=str(exc),
-            )
+            logger.error("knowledge_buglist_load_error", error=str(exc))
             return 0, ""
