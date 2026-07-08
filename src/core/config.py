@@ -95,6 +95,40 @@ class SecuritySettings(BaseSettings):
     api_key: str = os.environ.get("TESTPLATFORM_API_KEY", "")
 
 
+class AgentRuntimeSettings(BaseSettings):
+    """统一智能体运行时配置（面向软件测试全流程）。
+
+    - `roles`：以两段式命名（如 `requirement.analyzer`）映射到 backend 路由链。
+      每个 role 需包含 `primary`、`fallbacks`、`default_timeout_seconds`。
+    - `backends`：每个 backend 的实例化参数（`type: cli|sdk`、`command`、
+      `stdin_prompt`、`model`、`mode`、`api_key_env` 等）。
+    - `strict_startup_check`：为 True 时，任一 role 无可用 backend 直接 fail-fast。
+    """
+
+    enabled: bool = True
+    strict_startup_check: bool = True
+    roles: dict[str, dict[str, Any]] = {}
+    backends: dict[str, dict[str, Any]] = {}
+
+
+class KnowledgeBaseSettings(BaseSettings):
+    """自包含知识库语义检索配置（cloud可部署，不依赖 Obsidian 桌面端）。"""
+
+    enabled: bool = True
+    vault_path: str = ""
+    buglist_path: str = "data/ACN_buglist.xlsx"
+    index_db_path: str = "storage/knowbase_index.sqlite3"
+    embedding_provider: str = "openai"  # openai | local_hash
+    embedding_model: str = "text-embedding-3-small"
+    embedding_api_base: str = "https://api.openai.com/v1"
+    embedding_api_key_env: str = "OPENAI_API_KEY"
+    top_k: int = 8
+    min_score: float = 0.22
+    max_block_chars: int = 1200
+    max_context_chars: int = 8000
+    keyword_fallback: bool = True
+
+
 class Settings:
     """Aggregated settings from YAML config files.
 
@@ -115,6 +149,8 @@ class Settings:
         self.llm = LLMSettings(**settings_yaml.get("llm", {}))
         self.pipeline = PipelineSettings(**settings_yaml.get("pipeline", {}))
         self.security = SecuritySettings(**settings_yaml.get("security", {}))
+        self.agent_runtime = AgentRuntimeSettings(**settings_yaml.get("agent_runtime", {}))
+        self.knowledge_base = KnowledgeBaseSettings(**settings_yaml.get("knowledge_base", {}))
         self.llm_providers_config = _load_yaml("llm_providers.yaml")
         self.platforms_config = _load_yaml("platforms.yaml")
 

@@ -50,3 +50,97 @@ visual:
   comparison_threshold: 0.95
   save_diff_images: true
   diff_images_dir: "storage/screenshots/diffs"
+
+# ────────────────────────────────────────────────────────────────
+# 知识库（自包含语义 RAG，不依赖 Obsidian 桌面端）
+# ────────────────────────────────────────────────────────────────
+knowledge_base:
+  enabled: true
+  vault_path: "/Users/xiguawang/Documents/Codex/2026-06-15/iphone/obsidian_vault"
+  buglist_path: "data/ACN_buglist.xlsx"
+  index_db_path: "storage/knowbase_index.sqlite3"
+  # embedding: openai | local_hash
+  # openai 需 OPENAI_API_KEY；不可用时自动降级到 local_hash
+  embedding_provider: "openai"
+  embedding_model: "text-embedding-3-small"
+  embedding_api_base: "https://api.openai.com/v1"
+  embedding_api_key_env: "OPENAI_API_KEY"
+  top_k: 8
+  min_score: 0.22
+  max_block_chars: 1200
+  max_context_chars: 8000
+  # embedding/索引不可用时降级关键词加载
+  keyword_fallback: true
+
+# ────────────────────────────────────────────────────────────────
+# 统一智能体运行时（面向软件测试全流程）
+#   业务代码只面向 role（两段式命名 <domain>.<role>），
+#   智能体选型与 fallback 顺序完全由本段配置驱动。
+#   接入新阶段步骤见 docs/agent_runtime.md。
+# ────────────────────────────────────────────────────────────────
+agent_runtime:
+  enabled: true
+  strict_startup_check: false   # 本地调试建议 false；生产建议 true 以 fail-fast
+
+  # ── Role → backend 路由链 ──
+  roles:
+    # 本次落地：需求分析模块
+    requirement.analyzer:
+      primary: cursor
+      fallbacks: [claude_code, codex]
+      default_timeout_seconds: 600
+    requirement.reviewer:
+      primary: codex
+      fallbacks: [cursor, claude_code]
+      default_timeout_seconds: 300
+    requirement.testpoint_designer:
+      primary: cursor
+      fallbacks: [claude_code, codex]
+      default_timeout_seconds: 600
+
+    # 通用角色（跨阶段复用，自愈流程使用）
+    utility.diagnoser:
+      primary: cursor
+      fallbacks: [claude_code, codex]
+      default_timeout_seconds: 180
+
+    # 未来阶段（本次不实现，取消注释即接入）
+    # testcase.generator:
+    #   primary: claude_code
+    #   fallbacks: [cursor, codex]
+    #   default_timeout_seconds: 600
+    # testcase.reviewer:
+    #   primary: codex
+    #   fallbacks: [cursor, claude_code]
+    #   default_timeout_seconds: 300
+    # execution.planner:
+    #   primary: cursor
+    #   fallbacks: [claude_code]
+    #   default_timeout_seconds: 300
+    # defect.analyzer:
+    #   primary: claude_code
+    #   fallbacks: [cursor, codex]
+    #   default_timeout_seconds: 300
+    # regression.selector:
+    #   primary: codex
+    #   fallbacks: [claude_code]
+    #   default_timeout_seconds: 180
+
+  # ── Backend 定义 ──
+  backends:
+    claude_code:
+      type: cli
+      command: ["claude", "-p", "{prompt}"]
+      stdin_prompt: false
+      default_timeout_seconds: 600
+    codex:
+      type: cli
+      command: ["codex", "exec", "--skip-git-repo-check"]
+      stdin_prompt: true
+      default_timeout_seconds: 300
+    cursor:
+      type: sdk
+      mode: local              # local | cloud（本次仅实现 local）
+      model: composer-2.5
+      api_key_env: CURSOR_API_KEY
+      default_timeout_seconds: 600
