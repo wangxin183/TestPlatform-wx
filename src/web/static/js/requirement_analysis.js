@@ -458,10 +458,42 @@
 
     let html = '';
 
-    // 遗漏项
+    // 需求缺陷（原文/需求本身）
+    const reqDefects = rjson.requirement_defects || [];
+    if (reqDefects.length) {
+      html += '<h4>需求缺陷 (' + reqDefects.length + ')</h4>';
+      html += '<p class="rv-text-muted">原文/需求本身的问题（描述不清、不可验证、不可测等）</p>';
+      for (const d of reqDefects) {
+        const sev = d.severity === 'high' ? 'danger' : (d.severity === 'medium' ? 'warning' : 'info');
+        html += `<div class="review-item review-missing">
+          <span class="badge badge-${sev}">${escHtml(d.severity || '')}</span>
+          <strong>${escHtml(d.type || '')}</strong> — ${escHtml(d.description || '')}
+          <span class="rv-text-muted">(${escHtml(d.location || '')})</span>
+          ${d.suggestion ? '<p><strong>建议：</strong>' + escHtml(d.suggestion) + '</p>' : ''}
+        </div>`;
+      }
+    }
+
+    // 分析拆解缺陷
+    const analysisDefects = rjson.analysis_defects || [];
+    if (analysisDefects.length) {
+      html += '<h4>分析拆解缺陷 (' + analysisDefects.length + ')</h4>';
+      html += '<p class="rv-text-muted">分析结果的问题（漏拆、拆错、粒度、幻觉、测试点覆盖不足等）</p>';
+      for (const d of analysisDefects) {
+        const sev = d.severity === 'high' ? 'danger' : (d.severity === 'medium' ? 'warning' : 'info');
+        html += `<div class="review-item review-suggestion">
+          <span class="badge badge-${sev}">${escHtml(d.severity || '')}</span>
+          <code>${escHtml(d.target || '')}</code>
+          <strong>${escHtml(d.type || '')}</strong> — ${escHtml(d.description || '')}
+          ${d.suggestion ? '<p><strong>建议：</strong>' + escHtml(d.suggestion) + '</p>' : ''}
+        </div>`;
+      }
+    }
+
+    // 兼容旧字段：遗漏项
     const missing = rjson.missing_items || [];
-    if (missing.length) {
-      html += '<h4>🔴 遗漏项 (' + missing.length + ')</h4>';
+    if (missing.length && !reqDefects.length && !analysisDefects.length) {
+      html += '<h4>遗漏项 (' + missing.length + ')</h4>';
       for (const m of missing) {
         html += `<div class="review-item review-missing">
           <span class="badge badge-${m.severity === 'high' ? 'danger' : 'warning'}">${escHtml(m.severity)}</span>
@@ -474,7 +506,7 @@
     // 改进建议
     const suggestions = rjson.improvement_suggestions || [];
     if (suggestions.length) {
-      html += '<h4>💡 改进建议 (' + suggestions.length + ')</h4>';
+      html += '<h4>改进建议 (' + suggestions.length + ')</h4>';
       for (const sug of suggestions) {
         const target = typeof sug === 'object' ? sug.target || '' : '';
         const issue = typeof sug === 'object' ? sug.issue || '' : '';
@@ -487,10 +519,10 @@
       }
     }
 
-    // 幻觉标记
+    // 幻觉标记（兼容；新结构通常已在 analysis_defects）
     const hallucinations = rjson.hallucinations || [];
     if (hallucinations.length) {
-      html += '<h4>⚠️ 疑似幻觉 (' + hallucinations.length + ')</h4>';
+      html += '<h4>疑似幻觉 (' + hallucinations.length + ')</h4>';
       for (const h of hallucinations) {
         html += `<div class="review-item review-hallucination">
           <code>${escHtml(h.item || '')}</code> — ${escHtml(h.reason || '')}
@@ -500,7 +532,7 @@
 
     // 总体评语
     if (rjson.overall_comment) {
-      html += '<h4>📝 总体评语</h4><p class="rv-text-muted">' + escHtml(rjson.overall_comment) + '</p>';
+      html += '<h4>总体评语</h4><p class="rv-text-muted">' + escHtml(rjson.overall_comment) + '</p>';
     }
 
     return html || '<p class="rv-text-muted">审查完成，无特别标记</p>';
@@ -510,31 +542,53 @@
   function renderLogs(logs) {
     if (!logs.length) return '<p class="rv-text-muted">暂无日志</p>';
 
+    // 通用事件标签：以 agent_start / agent_done / agent_failed 为主，
+    // 事件字段里含 role / backend，动态拼接展示；未来新阶段接入后无需改前端。
+    const staticLabels = {
+      'task_created': '📋 任务创建',
+      'ingest_start': '📥 开始摄取文档',
+      'ingest_done': '✅ 文档摄取完成',
+      'knowledge_load': '📚 加载知识库',
+      'skill_load': '🔧 加载 Skill',
+      'agent_start': '🤖 智能体开始',
+      'agent_done': '✅ 智能体完成',
+      'agent_failed': '⚠️ 智能体失败',
+      'self_heal_start': '🛠️ 自愈开始',
+      'self_heal_infra_retry': '🔁 自愈：重试',
+      'self_heal_backend_switch': '↪️ 自愈：切换后端',
+      'self_heal_diagnosis_start': '🔎 自愈：诊断',
+      'self_heal_complete': '✔️ 自愈完成',
+      'self_heal_exhausted': '❌ 自愈耗尽',
+      'json_parse': 'JSON 解析',
+      'testpoint_merge': '测试点已合并',
+      'revise_mode': '增量修订模式',
+      'feishu_sent': '飞书通知已发送',
+      'human_review_submitted': '人工审核已提交',
+      'retry_started': '开始重试/修订',
+      // 兼容旧事件名（历史任务的日志文件）
+      'claude_start': '智能体开始',
+      'claude_done': '智能体完成',
+      'claude_failed': '智能体失败',
+      'codex_start': '智能体开始',
+      'codex_done': '智能体完成',
+      'codex_failed': '智能体失败',
+    };
+
     let html = '<div class="log-list">';
     for (const log of logs) {
-      const stepLabel = {
-        'task_created': '📋 任务创建',
-        'ingest_start': '📥 开始摄取文档',
-        'ingest_done': '✅ 文档摄取完成',
-        'knowledge_load': '📚 加载知识库',
-        'skill_load': '🔧 加载 Skill',
-        'claude_start': '🤖 Claude Code 开始分析',
-        'claude_done': '✅ Claude Code 分析完成',
-        'json_parse': '📊 JSON 解析',
-        'codex_start': '🔍 Codex 开始审查',
-        'codex_done': '✅ Codex 审查完成',
-        'feishu_sent': '📨 飞书通知已发送',
-        'human_review_submitted': '👤 人工审核已提交',
-      }[log.step] || log.step;
+      let stepLabel = staticLabels[log.step] || log.step;
+      const roleTag = log.role ? ' [' + log.role + ']' : '';
+      const backendTag = log.backend ? ' <' + log.backend + '>' : '';
+      stepLabel = stepLabel + roleTag + backendTag;
 
       const extra = Object.entries(log)
-        .filter(([k]) => !['seq', 'timestamp', 'step'].includes(k))
+        .filter(([k]) => !['seq', 'timestamp', 'step', 'role', 'backend'].includes(k))
         .map(([k, v]) => k + '=' + JSON.stringify(v))
         .join(', ');
 
       html += `<div class="log-entry">
         <span class="log-time">${fmtDate(log.timestamp)}</span>
-        <span class="log-step">${stepLabel}</span>
+        <span class="log-step">${escHtml(stepLabel)}</span>
         ${extra ? '<span class="log-extra rv-text-muted">' + escHtml(extra) + '</span>' : ''}
       </div>`;
     }

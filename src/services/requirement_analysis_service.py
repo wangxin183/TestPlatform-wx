@@ -26,6 +26,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from src.agent_runtime import AgentRunResult, AgentTask, agent_runtime
+from src.agent_runtime.cli_shared import recover_json_from_workdir
 from src.llm.prompts.skill_loader import load_skill
 from src.services.agent_cli import AgentCLI, CLICallResult
 from src.services.feishu_notifier import FeishuNotifier
@@ -37,11 +39,22 @@ from src.services.self_healing import (
     SelfHealingOrchestrator,
     classify_failure,
 )
+from src.services.testpoint_coverage import (
+    TestPointCoverageReport,
+    renumber_test_points,
+    split_fr_batches,
+    validate_testpoint_coverage,
+)
+from src.services.requirement_evidence import validate_analysis_scope
 from src.utils.analysis_logger import AnalysisLogger
 from src.utils.document_converter import (
     convert_to_markdown,
     detect_file_type,
     has_binary_signature,
+)
+from src.utils.document_sanitizer import (
+    sanitize_requirement_markdown,
+    validate_upload_document,
 )
 from src.utils.logging_config import get_logger
 
@@ -73,6 +86,10 @@ MODEL_CONTEXT_WINDOW = 180000   # 上下文窗口上限（90% 利用率，200K �
 OUTPUT_TOKEN_BUDGET = 20000     # 预留给模型输出
 SAFETY_MARGIN = 5000            # 安全余量
 MAX_INPUT_TOKENS = MODEL_CONTEXT_WINDOW - OUTPUT_TOKEN_BUDGET - SAFETY_MARGIN  # 155000
+
+# 测试点分批生成：避免单次 stdout JSON 过长被截断（如 RA-0011 仅保留 TP-083 尾部）
+FR_TP_BATCH_SIZE = 4
+NFR_TP_BATCH_SIZE = 6
 
 
 # ============================================================
@@ -144,6 +161,7 @@ def _scan_storage_for_tasks() -> dict[str, AnalysisTask]:
                     current_step=data.get("current_step", ""),
                     progress_pct=data.get("progress_pct", 0),
                     doc_markdown=data.get("doc_markdown", ""),
+                    human_review=data.get("human_review"),
                     created_at=data.get("created_at", ""),
                     completed_at=data.get("completed_at", ""),
                     error_message=data.get("error_message", ""),
@@ -326,6 +344,7 @@ def _save_task_state(task: AnalysisTask) -> None:
             "current_step": task.current_step,
             "progress_pct": task.progress_pct,
             "doc_markdown": task.doc_markdown,
+            "human_review": task.human_review,
             "created_at": task.created_at,
             "completed_at": task.completed_at,
             "error_message": task.error_message,
@@ -349,10 +368,10 @@ class RequirementAnalysisService:
     """
 
     def __init__(self):
-        self.cli = AgentCLI()
+        self.cli = AgentCLI()  # 保留：静态工具方法（extract_json / estimate_tokens）
         self.feishu = FeishuNotifier()
         self.knowbase = KnowledgeBaseLoader()
-        self.healer = SelfHealingOrchestrator(self.cli, self.feishu)
+        self.healer = SelfHealingOrchestrator(agent_runtime, self.feishu)
         self._store_lock = asyncio.Lock()  # 保护 _task_store 的并发访问
 
         # 从文件系统恢复任务状态
@@ -568,23 +587,17 @@ class RequirementAnalysisService:
                     "error": f"当前状态 {task.status} 不允许提交审核",
                 }
 
+            # 结构化保存人工意见，供驳回后增量修订读取（不再拼进 custom_prompt）
             task.human_review = {
                 "reviewer": "人工审查",
                 "comment": comment,
                 "decision": decision,
+                "corrections": corrections or [],
                 "applied_changes": corrections or [],
                 "reviewed_at": datetime.now(timezone.utc).isoformat(),
             }
             task.status = decision  # approved 或 rejected
             task.completed_at = datetime.now(timezone.utc).isoformat()
-
-            # 驳回时：将审核意见注入 custom_prompt，重试时 Claude Code 自动读取
-            if decision == "rejected" and comment:
-                task.custom_prompt = (
-                    f"{task.custom_prompt}\n\n"
-                    f"## 人工审查意见（驳回重试）\n"
-                    f"{comment}"
-                )
             _save_task_state(task)
 
         alog = AnalysisLogger(analysis_id)
@@ -629,22 +642,43 @@ class RequirementAnalysisService:
                     "error": f"当前状态 {task.status} 不允许重试",
                 }
 
-            # 将人工意见合并到 custom_prompt
-            if feedback:
-                task.custom_prompt = (
-                    f"{task.custom_prompt}\n\n## 人工审查意见（重试）\n{feedback}"
-                )
+            human_review = task.human_review or {}
+            comment = human_review.get("comment", "") or ""
+            corrections = (
+                human_review.get("corrections")
+                or human_review.get("applied_changes")
+                or []
+            )
+            # 增量修订基线：上一版分析结果 + 审查意见 + 人工意见
+            revision_baseline: dict | None = None
+            if task.analysis_json or task.review_json or comment or feedback:
+                revision_baseline = {
+                    "previous_analysis_json": task.analysis_json,
+                    "previous_review_json": task.review_json,
+                    "human_comment": comment,
+                    "human_corrections": corrections,
+                    "extra_feedback": feedback or "",
+                }
 
-            task.status = "uploading"
-            task.current_step = "重新开始分析..."
+            platform_type = task.platform_type
+            custom_prompt = task.custom_prompt
+            filename = task.filename
+
+            task.status = "processing"
+            task.current_step = "按意见增量修订中..."
             task.progress_pct = 5
+            task.error_message = ""
             _save_task_state(task)
 
         alog = AnalysisLogger(analysis_id)
-        alog.log("retry_started", feedback=feedback[:200])
+        alog.log(
+            "retry_started",
+            feedback=(feedback or comment)[:200],
+            revise_mode=bool(revision_baseline),
+        )
 
-        # 读取原有 Markdown 内容，重新分析
-        md_path = alog.dir_path / f"{task.filename}.md"
+        # 读取原有 Markdown 内容，按基线增量修订（有基线）或全量重跑
+        md_path = alog.dir_path / f"{filename}.md"
         if not md_path.exists():
             return {"success": False, "error": "原始文档已丢失，无法重试"}
 
@@ -653,7 +687,11 @@ class RequirementAnalysisService:
         async def _retry_with_cleanup():
             try:
                 await self._run_analysis_with_content(
-                    analysis_id, md_path, task.platform_type, task.custom_prompt,
+                    analysis_id,
+                    md_path,
+                    platform_type,
+                    custom_prompt,
+                    revision_baseline=revision_baseline,
                 )
             except Exception as exc:
                 logger.error("retry_analysis_error", analysis_id=analysis_id, error=str(exc))
@@ -759,6 +797,19 @@ class RequirementAnalysisService:
         if not md_text:
             raise ValueError(f"文档 {filename} 解析失败，未能提取有效文本内容")
 
+        upload_check = validate_upload_document(md_text)
+        if upload_check.blocked:
+            alog.log(
+                "doc_contamination_blocked",
+                reason=upload_check.block_reason,
+                warnings=upload_check.warnings,
+            )
+            raise ValueError(upload_check.block_reason)
+
+        md_text, sanitize_report = sanitize_requirement_markdown(md_text)
+        if sanitize_report.warnings:
+            alog.log("doc_sanitized", warnings=sanitize_report.warnings)
+
         # 乱码检测
         if self._is_garbled(md_text):
             raise ValueError(f"文档 {filename} 内容乱码，无法正确解析编码")
@@ -785,12 +836,17 @@ class RequirementAnalysisService:
         md_path: Path,
         platform_type: str,
         custom_prompt: str,
+        revision_baseline: dict | None = None,
     ) -> None:
         """用已有的 Markdown 内容执行分析 + 审查 + 通知。
 
         每个可失败步骤均通过 SelfHealingOrchestrator 包装：
         - 基础设施故障（超时/退出码）→ 退避重试 × 3 + Agent 切换
         - 输出故障（JSON 解析/类型/质量）→ Agent 自诊断 × 3
+
+        Args:
+            revision_baseline: 增量修订基线（含上一版 analysis/review 与人工意见）。
+                有值时 analyzer 进入修订模式，否则做全量分析。
         """
         alog = AnalysisLogger(analysis_id)
         async with self._store_lock:
@@ -811,6 +867,7 @@ class RequirementAnalysisService:
         def _make_healing_ctx(
             skill_body_override: str = "",
             analysis_json_override: dict | None = None,
+            role: str = "requirement.analyzer",
         ) -> HealingContext:
             return HealingContext(
                 analysis_id=analysis_id,
@@ -822,6 +879,8 @@ class RequirementAnalysisService:
                 custom_prompt=custom_prompt,
                 review_skill_body=review_skill_body,
                 original_analysis_json=analysis_json_override or analysis_json,
+                role=role,
+                workdir=str(alog.dir_path),
             )
 
         # ── 步骤 2：按需加载知识库 ──
@@ -846,9 +905,18 @@ class RequirementAnalysisService:
         alog.save_snapshot("SKILL_used.md", skill_body)
 
         # ============================================================
-        # 步骤 4：Claude Code 分析（集成自愈）
+        # 步骤 4：需求分析（全量或增量修订）
         # ============================================================
-        await _set_progress("Claude Code 正在分析需求...", 40)
+        if revision_baseline:
+            await _set_progress("智能体正在按意见增量修订需求拆解...", 40)
+            alog.log(
+                "revise_mode",
+                has_prev_analysis=bool(revision_baseline.get("previous_analysis_json")),
+                has_prev_review=bool(revision_baseline.get("previous_review_json")),
+                human_comment=(revision_baseline.get("human_comment") or "")[:200],
+            )
+        else:
+            await _set_progress("智能体正在拆解需求（FR/NFR）...", 40)
 
         analysis_json = None
         review_skill_body = ""
@@ -860,12 +928,14 @@ class RequirementAnalysisService:
             knowledge_context=knowledge_ctx.to_prompt_text(),
             platform_type=platform_type,
             custom_prompt=custom_prompt,
+            revision_baseline=revision_baseline,
         )
         alog.save_snapshot("claude_prompt.txt", claude_prompt)
         estimated_tokens = AgentCLI.estimate_tokens(claude_prompt)
         claude_timeout = AgentCLI.dynamic_timeout(estimated_tokens)
         alog.log(
-            "claude_start",
+            "agent_start",
+            role="requirement.analyzer",
             prompt_len=len(claude_prompt),
             doc_len=len(doc_md),
             estimated_tokens=estimated_tokens,
@@ -875,23 +945,29 @@ class RequirementAnalysisService:
             prompt_tail=claude_prompt[-300:],
         )
 
-        # ④a：Claude CLI 调用（含自愈）
-        claude_result = await self.cli.claude(
+        # ④a：Analyzer 智能体调用（通过 AgentRuntime，含自愈）
+        claude_result = await agent_runtime.run(AgentTask(
+            role="requirement.analyzer",
             prompt=claude_prompt,
             workdir=str(alog.dir_path),
             timeout=claude_timeout,
-        )
+            stage_name="requirement_analysis",
+            task_id=analysis_id,
+        ))
 
         if not claude_result.success:
             alog.log(
-                "claude_failed",
+                "agent_failed",
+                role="requirement.analyzer",
+                backend=claude_result.backend,
+                fallback_from=claude_result.fallback_from or "",
                 error=claude_result.error[:500],
                 exit_code=claude_result.exit_code,
             )
             failure = classify_failure(
                 cli_result=claude_result,
-                agent_tool="claude",
-                step_name="claude_analysis",
+                agent_tool=claude_result.backend or "claude",
+                step_name="requirement.analyzer",
                 prompt=claude_prompt,
                 raw_output=claude_result.raw_output,
             )
@@ -900,14 +976,20 @@ class RequirementAnalysisService:
             )
             if not heal_result.success:
                 raise RuntimeError(heal_result.final_error)
-            claude_result = CLICallResult(
+            claude_result = AgentRunResult(
                 success=True,
                 raw_output=heal_result.raw_output,
                 exit_code=0,
+                role="requirement.analyzer",
+                backend="self_healing",
             )
 
         alog.log(
-            "claude_done",
+            "agent_done",
+            role="requirement.analyzer",
+            backend=claude_result.backend,
+            fallback_from=claude_result.fallback_from or "",
+            latency_ms=claude_result.latency_ms,
             output_len=len(claude_result.raw_output),
             output_head=claude_result.raw_output[:500],
             output_tail=claude_result.raw_output[-300:],
@@ -982,19 +1064,64 @@ class RequirementAnalysisService:
             risk_count=len(analysis_json.get("risks", [])),
         )
 
+        # FR 范围与原文依据校验（仅允许第三章模块 + source_evidence 可匹配）
+        scope_report = validate_analysis_scope(doc_md, analysis_json)
+        alog.log(
+            "analysis_scope_check",
+            ok=scope_report.ok,
+            summary=scope_report.summary(),
+            allowed_modules=scope_report.allowed_modules,
+            error_count=len(scope_report.errors),
+        )
+        if not scope_report.ok:
+            alog.log(
+                "analysis_scope_failed",
+                errors=scope_report.errors[:12],
+                rejected_fr_ids=[
+                    fr.get("id") for fr in scope_report.rejected_fr[:12]
+                ],
+            )
+            failure = FailureInfo(
+                category=FailureCategory.OUTPUT_QUALITY,
+                step_name="analysis_scope_check",
+                agent_tool="claude",
+                error_message="; ".join(scope_report.errors[:10]),
+                raw_output=claude_result.raw_output,
+                prompt=claude_prompt,
+            )
+            heal_result = await self.healer.handle(
+                failure, _make_healing_ctx(), alog
+            )
+            if not heal_result.success:
+                raise RuntimeError(
+                    "需求分析结果超出文档范围或缺少可验证原文依据："
+                    + "; ".join(scope_report.errors[:6])
+                )
+            if isinstance(heal_result.output, dict):
+                analysis_json = heal_result.output
+                alog.save_json(f"{analysis_id}.json", analysis_json)
+                fr_count = len(analysis_json.get("functional_requirements", []))
+            scope_report = validate_analysis_scope(doc_md, analysis_json)
+            if not scope_report.ok:
+                raise RuntimeError(
+                    "自愈后仍存在越界 FR："
+                    + "; ".join(scope_report.errors[:6])
+                )
+
         # 内容质量自愈
-        if fr_count < 1 and tp_count < 1:
+        # analyzer 阶段不再产出 test_points（由后续独立阶段生成），此处仅检查 FR/NFR 是否为空
+        if fr_count < 1 and len(analysis_json.get("non_functional_requirements", [])) < 1:
             alog.log(
                 "quality_check_failed",
                 fr_count=fr_count,
                 tp_count=tp_count,
-                note="分析结果中无功能需求和测试点，触发自愈",
+                note="分析结果中无功能/非功能需求，触发自愈",
             )
             failure = FailureInfo(
                 category=FailureCategory.OUTPUT_QUALITY,
                 step_name="claude_quality_check",
                 agent_tool="claude",
-                error_message=f"FR={fr_count}, TP={tp_count}，均为空",
+                error_message=f"FR={fr_count}, NFR={len(analysis_json.get('non_functional_requirements', []))}，均为空",
                 raw_output=claude_result.raw_output,
             )
             heal_result = await self.healer.handle(
@@ -1005,13 +1132,28 @@ class RequirementAnalysisService:
                 alog.save_json(f"{analysis_id}.json", analysis_json)
                 fr_count = len(analysis_json.get("functional_requirements", []))
 
+        # ============================================================
+        # 步骤 4.5：测试点设计（TP）— 分批生成 + 覆盖率校验
+        # ============================================================
+        await _set_progress("正在生成测试点（TP）...", 55)
+
+        analysis_json = await self._run_testpoint_design_stage(
+            analysis_id=analysis_id,
+            analysis_json=analysis_json,
+            doc_md=doc_md,
+            alog=alog,
+            make_healing_ctx=_make_healing_ctx,
+        )
+        tp_count = len(analysis_json.get("test_points", []))
+        alog.save_json(f"{analysis_id}.json", analysis_json)
+
         async with self._store_lock:
             task = _task_store.get(analysis_id)
             if task:
                 task.analysis_json = analysis_json
                 task.status = "reviewing"
-                task.current_step = "Codex 正在审查分析结果..."
-                task.progress_pct = 70
+                task.current_step = "正在审查分析结果..."
+                task.progress_pct = 85
                 _save_task_state(task)
 
         # ============================================================
@@ -1031,7 +1173,8 @@ class RequirementAnalysisService:
         review_estimated_tokens = AgentCLI.estimate_tokens(codex_prompt)
         codex_timeout = AgentCLI.dynamic_timeout(review_estimated_tokens)
         alog.log(
-            "codex_start",
+            "agent_start",
+            role="requirement.reviewer",
             prompt_len=len(codex_prompt),
             estimated_tokens=review_estimated_tokens,
             context_usage_pct=round(review_estimated_tokens / MODEL_CONTEXT_WINDOW * 100, 1),
@@ -1040,23 +1183,29 @@ class RequirementAnalysisService:
             prompt_tail=codex_prompt[-300:],
         )
 
-        # ⑤a：Codex CLI 调用（含自愈）
-        codex_result = await self.cli.codex(
+        # ⑤a：Reviewer 智能体调用（通过 AgentRuntime，含自愈）
+        codex_result = await agent_runtime.run(AgentTask(
+            role="requirement.reviewer",
             prompt=codex_prompt,
             workdir=str(alog.dir_path),
             timeout=codex_timeout,
-        )
+            stage_name="requirement_analysis",
+            task_id=analysis_id,
+        ))
 
         if not codex_result.success:
             alog.log(
-                "codex_failed",
+                "agent_failed",
+                role="requirement.reviewer",
+                backend=codex_result.backend,
+                fallback_from=codex_result.fallback_from or "",
                 error=codex_result.error[:500],
                 exit_code=codex_result.exit_code,
             )
             failure = classify_failure(
                 cli_result=codex_result,
-                agent_tool="codex",
-                step_name="codex_review",
+                agent_tool=codex_result.backend or "codex",
+                step_name="requirement.reviewer",
                 prompt=codex_prompt,
                 raw_output=codex_result.raw_output,
             )
@@ -1065,19 +1214,26 @@ class RequirementAnalysisService:
                 _make_healing_ctx(
                     skill_body_override=review_skill_body,
                     analysis_json_override=analysis_json,
+                    role="requirement.reviewer",
                 ),
                 alog,
             )
             if not heal_result.success:
                 raise RuntimeError(heal_result.final_error)
-            codex_result = CLICallResult(
+            codex_result = AgentRunResult(
                 success=True,
                 raw_output=heal_result.raw_output,
                 exit_code=0,
+                role="requirement.reviewer",
+                backend="self_healing",
             )
 
         alog.log(
-            "codex_done",
+            "agent_done",
+            role="requirement.reviewer",
+            backend=codex_result.backend,
+            fallback_from=codex_result.fallback_from or "",
+            latency_ms=codex_result.latency_ms,
             output_len=len(codex_result.raw_output),
             output_head=codex_result.raw_output[:500],
             output_tail=codex_result.raw_output[-300:],
@@ -1103,6 +1259,7 @@ class RequirementAnalysisService:
                 _make_healing_ctx(
                     skill_body_override=review_skill_body,
                     analysis_json_override=analysis_json,
+                    role="requirement.reviewer",
                 ),
                 alog,
             )
@@ -1176,13 +1333,16 @@ class RequirementAnalysisService:
         knowledge_context: str,
         platform_type: str,
         custom_prompt: str,
+        revision_baseline: dict | None = None,
     ) -> str:
-        """构建发给 Claude Code 的完整指令（含自适应 token 截断）。
+        """构建发给需求分析智能体的完整指令（含自适应 token 截断）。
 
         当文档 token 数超出上下文窗口预算时，自动按章节边界截断：
         - 保留前 2 章节 + 后 1 章节的完整内容
         - 中间章节保留标题 + 首段摘要
         - 兜底：简单头尾截断
+
+        revision_baseline 存在时进入修订模式：附带上一版结果与审查/人工意见。
         """
         # 计算固定部分 token 消耗
         platform_info = f"""## 平台信息
@@ -1197,8 +1357,42 @@ class RequirementAnalysisService:
 2. 分析完成后服务会自动发送飞书通知，你无需执行通知操作。
 """
 
+        revision_section = ""
+        if revision_baseline:
+            prev_analysis = revision_baseline.get("previous_analysis_json") or {}
+            prev_review = revision_baseline.get("previous_review_json") or {}
+            human_comment = revision_baseline.get("human_comment") or ""
+            human_corrections = revision_baseline.get("human_corrections") or []
+            extra_feedback = revision_baseline.get("extra_feedback") or ""
+
+            # 修订时分析 JSON 可能很大：优先保留 FR/NFR/risk 列表摘要式完整结构，
+            # 截断由后续整体预算控制。
+            prev_analysis_str = json.dumps(prev_analysis, ensure_ascii=False, indent=2)
+            prev_review_str = json.dumps(prev_review, ensure_ascii=False, indent=2)
+            corrections_str = json.dumps(human_corrections, ensure_ascii=False, indent=2)
+
+            revision_section = f"""## 修订基线（增量修订模式已启用）
+
+请按 SKILL 中「修订模式」执行：保留正确项，只针对下列意见定向修改，不要从零重写。
+
+### 人工驳回意见
+{human_comment or "（无）"}
+
+### 人工修正项
+{corrections_str}
+
+### 补充反馈
+{extra_feedback or "（无）"}
+
+### 上一版审查报告
+{prev_review_str}
+
+### 上一版分析结果（待修订）
+{prev_analysis_str}
+"""
+
         fixed_tokens = AgentCLI.estimate_tokens(
-            f"{skill_body}\n\n{platform_info}\n\n{output_instruction}"
+            f"{skill_body}\n\n{platform_info}\n\n{revision_section}\n\n{output_instruction}"
         )
 
         # 文档可用 token 预算
@@ -1215,6 +1409,7 @@ class RequirementAnalysisService:
                 original_tokens=doc_tokens,
                 budget=doc_budget,
                 original_chars=len(doc_md),
+                revise_mode=bool(revision_baseline),
             )
             doc_md = self._truncate_doc_by_chapters(doc_md, doc_budget)
             logger.info(
@@ -1231,8 +1426,440 @@ class RequirementAnalysisService:
 
 {doc_md}
 
+{revision_section}
 {output_instruction}"""
         return prompt
+
+    # ============================================================
+    # 测试点设计（分批 + 覆盖率校验）
+    # ============================================================
+
+    async def _run_testpoint_design_stage(
+        self,
+        *,
+        analysis_id: str,
+        analysis_json: dict,
+        doc_md: str,
+        alog: AnalysisLogger,
+        make_healing_ctx,
+    ) -> dict:
+        """分批调用 testpoint_designer，合并后做全量覆盖率校验。"""
+        tp_skill = load_skill("requirement-testpoint-designer")
+        tp_skill_body = tp_skill.body if tp_skill else ""
+        if not tp_skill_body:
+            raise RuntimeError("未找到 SKILL: requirement-testpoint-designer")
+
+        fr_list = analysis_json.get("functional_requirements") or []
+        nfr_list = analysis_json.get("non_functional_requirements") or []
+        fr_batches = split_fr_batches(fr_list, FR_TP_BATCH_SIZE)
+        nfr_batches: list[list[dict]] = []
+        if nfr_list:
+            for i in range(0, len(nfr_list), NFR_TP_BATCH_SIZE):
+                nfr_batches.append(nfr_list[i : i + NFR_TP_BATCH_SIZE])
+
+        batch_specs: list[tuple[str, list[dict], list[dict]]] = []
+        for idx, fr_batch in enumerate(fr_batches, start=1):
+            batch_specs.append((f"FR-{idx}", fr_batch, []))
+        for idx, nfr_batch in enumerate(nfr_batches, start=1):
+            batch_specs.append((f"NFR-{idx}", [], nfr_batch))
+
+        if not batch_specs:
+            raise RuntimeError("无可生成测试点的 FR/NFR")
+
+        alog.log(
+            "testpoint_batch_plan",
+            fr_count=len(fr_list),
+            nfr_count=len(nfr_list),
+            batch_count=len(batch_specs),
+        )
+
+        merged_tps: list[dict] = []
+        for batch_label, fr_batch, nfr_batch in batch_specs:
+            batch_tps = await self._invoke_testpoint_batch(
+                analysis_id=analysis_id,
+                analysis_json=analysis_json,
+                doc_md=doc_md,
+                alog=alog,
+                make_healing_ctx=make_healing_ctx,
+                tp_skill_body=tp_skill_body,
+                batch_label=batch_label,
+                fr_batch=fr_batch,
+                nfr_batch=nfr_batch,
+            )
+            merged_tps.extend(batch_tps)
+            alog.log(
+                "testpoint_batch_done",
+                batch=batch_label,
+                batch_tp_count=len(batch_tps),
+                merged_tp_count=len(merged_tps),
+            )
+
+        analysis_json = dict(analysis_json)
+        analysis_json["test_points"] = renumber_test_points(merged_tps)
+        coverage = validate_testpoint_coverage(analysis_json, require_full=True)
+        alog.log(
+            "testpoint_coverage_check",
+            ok=coverage.ok,
+            summary=coverage.summary(),
+            error_count=len(coverage.errors),
+            missing_fr=coverage.missing_fr[:10],
+        )
+
+        if not coverage.ok:
+            full_prompt = self._build_testpoint_prompt(
+                skill_body=tp_skill_body,
+                doc_md=doc_md,
+                analysis_json_str=json.dumps(analysis_json, ensure_ascii=False, indent=2),
+            )
+            healed_tps = await self._heal_testpoint_coverage(
+                coverage=coverage,
+                alog=alog,
+                make_healing_ctx=make_healing_ctx,
+                tp_skill_body=tp_skill_body,
+                analysis_json=analysis_json,
+                tp_prompt=full_prompt,
+                raw_output=json.dumps(
+                    {"test_points": analysis_json.get("test_points", [])},
+                    ensure_ascii=False,
+                )[:8000],
+            )
+            analysis_json["test_points"] = renumber_test_points(healed_tps)
+            coverage = validate_testpoint_coverage(analysis_json, require_full=True)
+            alog.log(
+                "testpoint_coverage_after_heal",
+                ok=coverage.ok,
+                summary=coverage.summary(),
+            )
+            if not coverage.ok:
+                raise RuntimeError(
+                    "测试点覆盖率校验失败: "
+                    + "; ".join(coverage.errors[:6])
+                )
+
+        alog.log(
+            "testpoint_merge",
+            tp_count=len(analysis_json.get("test_points", [])),
+            coverage=coverage.summary(),
+        )
+        return analysis_json
+
+    async def _invoke_testpoint_batch(
+        self,
+        *,
+        analysis_id: str,
+        analysis_json: dict,
+        doc_md: str,
+        alog: AnalysisLogger,
+        make_healing_ctx,
+        tp_skill_body: str,
+        batch_label: str,
+        fr_batch: list[dict],
+        nfr_batch: list[dict],
+    ) -> list[dict]:
+        subset = {
+            "functional_requirements": fr_batch,
+            "non_functional_requirements": nfr_batch,
+        }
+        tp_prompt = self._build_testpoint_batch_prompt(
+            skill_body=tp_skill_body,
+            doc_md=doc_md,
+            subset_json=subset,
+            batch_label=batch_label,
+        )
+        alog.save_snapshot(f"testpoint_prompt_{batch_label}.txt", tp_prompt)
+
+        tp_estimated_tokens = AgentCLI.estimate_tokens(tp_prompt)
+        tp_timeout = AgentCLI.dynamic_timeout(tp_estimated_tokens)
+        alog.log(
+            "agent_start",
+            role="requirement.testpoint_designer",
+            batch=batch_label,
+            prompt_len=len(tp_prompt),
+            estimated_tokens=tp_estimated_tokens,
+            dynamic_timeout_s=tp_timeout,
+        )
+
+        tp_result = await agent_runtime.run(AgentTask(
+            role="requirement.testpoint_designer",
+            prompt=tp_prompt,
+            workdir=str(alog.dir_path),
+            timeout=tp_timeout,
+            stage_name="requirement_analysis",
+            task_id=analysis_id,
+        ))
+
+        heal_ctx = make_healing_ctx(
+            skill_body_override=tp_skill_body,
+            analysis_json_override={
+                **analysis_json,
+                "functional_requirements": fr_batch,
+                "non_functional_requirements": nfr_batch,
+            },
+            role="requirement.testpoint_designer",
+        )
+
+        if not tp_result.success:
+            failure = classify_failure(
+                cli_result=tp_result,
+                agent_tool=tp_result.backend or "cursor",
+                step_name=f"testpoint_batch_{batch_label}",
+                prompt=tp_prompt,
+                raw_output=tp_result.raw_output,
+            )
+            heal_result = await self.healer.handle(failure, heal_ctx, alog)
+            if not heal_result.success:
+                raise RuntimeError(heal_result.final_error)
+            tp_result = AgentRunResult(
+                success=True,
+                raw_output=heal_result.raw_output,
+                exit_code=0,
+                role="requirement.testpoint_designer",
+                backend="self_healing",
+            )
+
+        tp_payload = await self._parse_testpoint_payload(
+            tp_result=tp_result,
+            alog=alog,
+            tp_prompt=tp_prompt,
+            heal_ctx=heal_ctx,
+        )
+        batch_json = {
+            **subset,
+            "test_points": tp_payload.get("test_points", []),
+        }
+        fr_ids = [f.get("id") for f in fr_batch if f.get("id")]
+        nfr_ids = [n.get("id") for n in nfr_batch if n.get("id")]
+        batch_cov = validate_testpoint_coverage(
+            batch_json,
+            require_full=False,
+            fr_ids=fr_ids,
+            nfr_ids=nfr_ids,
+        )
+        if not batch_cov.ok:
+            alog.log(
+                "testpoint_batch_coverage_failed",
+                batch=batch_label,
+                errors=batch_cov.errors[:5],
+            )
+            healed_tps = await self._heal_testpoint_coverage(
+                coverage=batch_cov,
+                alog=alog,
+                make_healing_ctx=make_healing_ctx,
+                tp_skill_body=tp_skill_body,
+                analysis_json=batch_json,
+                tp_prompt=tp_prompt,
+                raw_output=tp_result.raw_output,
+            )
+            batch_json["test_points"] = healed_tps
+            batch_cov = validate_testpoint_coverage(
+                batch_json,
+                require_full=False,
+                fr_ids=fr_ids,
+                nfr_ids=nfr_ids,
+            )
+            if not batch_cov.ok:
+                raise RuntimeError(
+                    f"批次 {batch_label} 测试点覆盖率不足: "
+                    + "; ".join(batch_cov.errors[:4])
+                )
+            return batch_json["test_points"]
+
+        return batch_json["test_points"]
+
+    async def _parse_testpoint_payload(
+        self,
+        *,
+        tp_result: AgentRunResult,
+        alog: AnalysisLogger,
+        tp_prompt: str,
+        heal_ctx: HealingContext,
+    ) -> dict:
+        tp_json_result = self.cli.extract_json(tp_result.raw_output)
+        if not tp_json_result.success:
+            recovered = recover_json_from_workdir(
+                heal_ctx.workdir,
+                raw_output=tp_result.raw_output,
+                preferred_names=[
+                    "test_points_output.json",
+                    "self_heal_corrected_output_compact.json",
+                    "self_heal_corrected_output.json",
+                ],
+                require_key="test_points",
+            )
+            if recovered.success:
+                alog.log(
+                    "testpoint_json_recovered_from_file",
+                    extract_method=recovered.extract_method,
+                    tp_count=len((recovered.data or {}).get("test_points", [])),
+                )
+                tp_json_result = recovered
+
+        if not tp_json_result.success:
+            alog.save_snapshot("testpoint_raw_output.txt", tp_result.raw_output)
+            failure = classify_failure(
+                json_result=tp_json_result,
+                agent_tool=tp_result.backend or "cursor",
+                step_name="testpoint_json_extract",
+                prompt=tp_prompt,
+                raw_output=tp_result.raw_output,
+            )
+            heal_result = await self.healer.handle(failure, heal_ctx, alog)
+            if not heal_result.success:
+                raise RuntimeError(heal_result.final_error)
+            tp_payload = heal_result.output
+        else:
+            tp_payload = tp_json_result.data
+
+        if isinstance(tp_payload, dict) and "test_points" not in tp_payload:
+            recovered = recover_json_from_workdir(
+                heal_ctx.workdir,
+                raw_output=str(tp_payload)[:500],
+                preferred_names=[
+                    "test_points_output.json",
+                    "self_heal_corrected_output_compact.json",
+                    "self_heal_corrected_output.json",
+                ],
+                require_key="test_points",
+            )
+            if recovered.success:
+                tp_payload = recovered.data
+
+        if not isinstance(tp_payload, dict) or not isinstance(
+            tp_payload.get("test_points"), list
+        ):
+            raise RuntimeError("测试点输出结构异常：要求对象且包含 test_points 数组")
+
+        subset = {
+            "functional_requirements": heal_ctx.original_analysis_json.get(
+                "functional_requirements", []
+            ),
+            "non_functional_requirements": heal_ctx.original_analysis_json.get(
+                "non_functional_requirements", []
+            ),
+            "test_points": tp_payload.get("test_points", []),
+        }
+        fr_ids = [
+            f.get("id")
+            for f in subset["functional_requirements"]
+            if f.get("id")
+        ]
+        nfr_ids = [
+            n.get("id")
+            for n in subset["non_functional_requirements"]
+            if n.get("id")
+        ]
+        cov = validate_testpoint_coverage(
+            subset,
+            require_full=bool(fr_ids or nfr_ids),
+            fr_ids=fr_ids or None,
+            nfr_ids=nfr_ids or None,
+        )
+        if not cov.ok:
+            failure = FailureInfo(
+                category=FailureCategory.OUTPUT_QUALITY,
+                step_name="testpoint_coverage_parse",
+                agent_tool=tp_result.backend or "cursor",
+                error_message="; ".join(cov.errors[:8]),
+                raw_output=tp_result.raw_output,
+                prompt=tp_prompt,
+            )
+            heal_result = await self.healer.handle(failure, heal_ctx, alog)
+            if not heal_result.success:
+                raise RuntimeError(heal_result.final_error)
+            healed = heal_result.output
+            if isinstance(healed, dict) and isinstance(healed.get("test_points"), list):
+                tp_payload = healed
+            else:
+                raise RuntimeError("自愈后仍无有效 test_points")
+
+        return tp_payload
+
+    async def _heal_testpoint_coverage(
+        self,
+        *,
+        coverage: TestPointCoverageReport,
+        alog: AnalysisLogger,
+        make_healing_ctx,
+        tp_skill_body: str,
+        analysis_json: dict,
+        tp_prompt: str,
+        raw_output: str,
+    ) -> list[dict]:
+        failure = FailureInfo(
+            category=FailureCategory.OUTPUT_QUALITY,
+            step_name="testpoint_coverage_check",
+            agent_tool="cursor",
+            error_message="; ".join(coverage.errors[:10]),
+            raw_output=raw_output,
+            prompt=tp_prompt,
+        )
+        heal_result = await self.healer.handle(
+            failure,
+            make_healing_ctx(
+                skill_body_override=tp_skill_body,
+                analysis_json_override=analysis_json,
+                role="requirement.testpoint_designer",
+            ),
+            alog,
+        )
+        if not heal_result.success:
+            raise RuntimeError(heal_result.final_error)
+        healed = heal_result.output
+        if isinstance(healed, dict) and isinstance(healed.get("test_points"), list):
+            return healed["test_points"]
+        if isinstance(healed, dict) and "functional_requirements" in healed:
+            return healed.get("test_points") or []
+        raise RuntimeError("自愈未返回 test_points 数组")
+
+    def _build_testpoint_batch_prompt(
+        self,
+        skill_body: str,
+        doc_md: str,
+        subset_json: dict,
+        batch_label: str,
+    ) -> str:
+        """单批次 TP 设计 prompt（仅含本批 FR/NFR）。"""
+        subset_str = json.dumps(subset_json, ensure_ascii=False, indent=2)
+        output_instruction = f"""## 输出要求
+
+1. 严格按测试点 JSON Schema 输出，只输出纯 JSON，不要包裹代码块标记。
+
+2. 你只能输出 `{{"test_points": [...]}}` 结构，不要输出 FR/NFR/risk，不要输出解释文字。
+
+3. **禁止写文件代答**：完整 JSON 必须写在标准输出中。
+
+4. **本批次（{batch_label}）**：仅为下方列出的 FR/NFR 生成测试点；`related_fr` 必须引用本批 id；不要生成其他需求的 TP。
+"""
+        fixed_tokens = AgentCLI.estimate_tokens(
+            f"{skill_body}\n\n## 原始需求文档\n\n\n\n## 本批 FR/NFR\n\n\n\n{output_instruction}"
+        )
+        content_budget = MAX_INPUT_TOKENS - fixed_tokens
+        if content_budget < 10000:
+            content_budget = 10000
+
+        doc_tokens = AgentCLI.estimate_tokens(doc_md)
+        json_tokens = AgentCLI.estimate_tokens(subset_str)
+        total_content = doc_tokens + json_tokens
+        if total_content > content_budget:
+            ratio = content_budget / total_content
+            doc_budget = int(doc_tokens * ratio)
+            json_budget = int(json_tokens * ratio)
+            if doc_tokens > doc_budget:
+                doc_md = self._truncate_doc_by_chapters(doc_md, doc_budget)
+            if json_tokens > json_budget:
+                subset_str = self._truncate_json_for_review(subset_str, json_budget)
+
+        return f"""{skill_body}
+
+## 原始需求文档
+
+{doc_md}
+
+## 本批 FR/NFR（{batch_label}）
+
+{subset_str}
+
+{output_instruction}"""
 
     def _build_review_prompt(
         self,
@@ -1289,6 +1916,55 @@ class RequirementAnalysisService:
 {doc_md}
 
 ## 待审查的分析结果
+
+{analysis_json_str}
+
+{output_instruction}"""
+        return prompt
+
+    def _build_testpoint_prompt(
+        self,
+        skill_body: str,
+        doc_md: str,
+        analysis_json_str: str,
+    ) -> str:
+        """构建发给测试点设计智能体的指令（含自适应 token 截断）。"""
+        output_instruction = """## 输出要求
+
+1. 严格按测试点 JSON Schema 输出，只输出纯 JSON，不要包裹代码块标记。
+
+2. 你只能输出 `{"test_points": [...]}` 结构，不要输出 FR/NFR/risk，不要输出解释文字。
+
+3. **禁止写文件代答**：即使内容很长，也必须把完整 JSON 写在标准输出中；不要写「已写入 xxx.json」之类说明。平台只解析你的回复文本，不会读取你写入的文件。
+"""
+
+        fixed_tokens = AgentCLI.estimate_tokens(
+            f"{skill_body}\n\n## 原始需求文档\n\n\n\n## 定稿需求拆解（FR/NFR）\n\n\n\n{output_instruction}"
+        )
+        content_budget = MAX_INPUT_TOKENS - fixed_tokens
+        if content_budget < 10000:
+            content_budget = 10000
+
+        doc_tokens = AgentCLI.estimate_tokens(doc_md)
+        json_tokens = AgentCLI.estimate_tokens(analysis_json_str)
+        total_content = doc_tokens + json_tokens
+
+        if total_content > content_budget:
+            ratio = content_budget / total_content
+            doc_budget = int(doc_tokens * ratio)
+            json_budget = int(json_tokens * ratio)
+            if doc_tokens > doc_budget:
+                doc_md = self._truncate_doc_by_chapters(doc_md, doc_budget)
+            if json_tokens > json_budget:
+                analysis_json_str = self._truncate_json_for_review(analysis_json_str, json_budget)
+
+        prompt = f"""{skill_body}
+
+## 原始需求文档
+
+{doc_md}
+
+## 定稿需求拆解（FR/NFR）
 
 {analysis_json_str}
 

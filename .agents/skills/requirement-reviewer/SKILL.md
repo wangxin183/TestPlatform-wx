@@ -28,15 +28,10 @@ description: >
 - 有没有这段提到了但分析结果中完全遗漏的功能点？
 - 分析结果中的某个 FR 是否在原文中找不到依据（幻觉）？
 
-**遗漏项格式**：
-```json
-{
-  "type": "FR | NFR | test_point | risk",
-  "location": "原文第X段/第X条",
-  "description": "遗漏的具体内容",
-  "severity": "high | medium | low"
-}
-```
+你必须将问题明确归类为两大类，并在输出 JSON 中分别给出：
+
+1) **需求缺陷（requirement_defects）**：原文/需求本身的缺陷，导致“即使拆解再好也无法测”。例如：描述不明确、不可验证、不可测、矛盾、缺失关键信息等。
+2) **分析拆解缺陷（analysis_defects）**：分析结果（FR/NFR/TP/risk）自身的问题。例如：漏拆、拆错、粒度不合理、测试点覆盖不足、幻觉等。
 
 ### 第 2 步：质量评估
 
@@ -45,17 +40,20 @@ description: >
 - 验收条件是否完整？是否覆盖了主流程？
 - 优先级标注是否合理？P0 是否被滥用？
 - 是否标注了原文歧义？没有标注是否因为 Agent 自己假设了？
+- **是否提供原文依据（source_evidence）**？如果 FR 的 source_evidence 无法在原文中找到支撑，则属于 **analysis_defects.hallucination**。
 
 对测试点：
 - 是否覆盖了正常流程？
 - 是否覆盖了边界值（空值、最大值、最小值、临界值）？
 - 是否覆盖了异常/错误场景（网络异常、超时、非法输入）？
 - 是否覆盖了权限相关场景（不同角色、登录/未登录）？
+- TP 是否能追溯到 FR 或 NFR？是否出现“泛化 TP 一条覆盖多个 FR”导致覆盖不足？
 
 对风险：
 - 风险识别是否充分？有没有明显的高风险点被遗漏？
 - 风险等级标注是否合理？
 - 缓解措施是否具体可执行？
+- 风险是否写清楚“推断依据”（来自原文哪里/哪些规则缺失/边界缺失）？
 
 ### 第 3 步：交叉检查
 
@@ -125,12 +123,30 @@ description: >
       "comment": "具体评语"
     }
   },
+  "requirement_defects": [
+    {
+      "type": "ambiguous | unverifiable | untestable | contradictory | missing",
+      "location": "原文第X章/第X节/第X段（或原文摘录）",
+      "description": "需求缺陷描述（说明为什么会导致不可测/不可验收）",
+      "severity": "high | medium | low",
+      "suggestion": "建议产品/研发补充的可验收口径（必须可操作）"
+    }
+  ],
+  "analysis_defects": [
+    {
+      "type": "omission | miscategorized | granularity | insufficient_test_coverage | hallucination",
+      "target": "FR-XXX | NFR-XXX | TP-XXX | RISK-XXX | analysis_json",
+      "description": "拆解缺陷描述（说明哪里漏/错/不够细/不够可执行）",
+      "severity": "high | medium | low",
+      "suggestion": "如何修正（必须可操作）"
+    }
+  ],
   "missing_items": [
     {
-      "type": "FR",
-      "location": "原文第3段关于登录超时的描述",
-      "description": "登录超时场景未在分析结果中体现",
-      "severity": "high"
+      "type": "FR | NFR | test_point | risk",
+      "location": "原文第X章/第X节/第X段（或原文摘录）",
+      "description": "遗漏的具体内容",
+      "severity": "high | medium | low"
     }
   ],
   "improvement_suggestions": [
@@ -154,8 +170,9 @@ description: >
 
 1. **只输出 JSON**：不要输出 Markdown、解释文字、代码块标记。直接输出纯 JSON
 2. **评分要有依据**：每个维度的评语必须写清楚为什么给这个分数
-3. **遗漏项要精确**：指出原文哪一段的需求被遗漏，方便人工核对
-4. **改进建议要可操作**：不要写"提高质量"，要写"FR-003 的验收条件需要补充 X"这种具体建议
-5. **发现幻觉必须标记**：如果分析结果中有原文不存在的需求，在 hallucinations 字段中标出
-6. **所有描述用中文**
-7. **JSON 必须合法**
+3. **两类缺陷必须都输出**：需求缺陷写入 `requirement_defects`，拆解缺陷写入 `analysis_defects`，不要混在一起
+4. **定位要精确**：指出原文哪一段（或摘录）便于人工核对
+5. **改进建议要可操作**：不要写"提高质量"，要写"FR-003 的验收条件需要补充 X"这种具体建议
+6. **发现幻觉必须标记**：凡是 analysis_json 中找不到原文依据（特别是 source_evidence 为空或不成立），必须在 `analysis_defects` 与 `hallucinations` 中标出
+7. **所有描述用中文**
+8. **JSON 必须合法**
