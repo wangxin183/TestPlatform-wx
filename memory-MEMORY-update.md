@@ -19,8 +19,8 @@
 
 ## 4. 权威工程文档（非 memory，但常对照）
 
-- `CLAUDE.md` — 北极星摘要 + 技术栈 + 架构约束
-- `AGENTS.md` — 前端规范 + 禁止短视硬编码
+- `CLAUDE.md` — 北极星 + **RA / TCG / EXE** 主线架构与约束（当前演进重点）
+- `AGENTS.md` — Agent 工作准则 + 前端 `rv-*` + 三页展示侧边界
 - `docs/superpowers/plans/2026-07-22-agent-engineering-self-heal.md` — StageAgentHarness
 - `docs/agent_runtime.md` — role 路由说明
 
