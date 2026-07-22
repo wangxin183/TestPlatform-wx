@@ -14,6 +14,9 @@ from src.llm.agents.base import AgentContext, AgentOutput, BaseAgent
 from src.llm.prompts.templates import load_prompt
 from src.llm.caller import truncate_prompt
 from src.llm.types import LLMRequest
+from src.services.testcase_automation_lint import lint_case
+from src.services.testcase_contract_compiler import prepare_executable_case
+from src.services.testcase_module_catalog import module_catalog
 from src.utils.logging_config import get_logger
 from src.utils.stage_logger import get_stage_logger
 
@@ -447,6 +450,15 @@ class TestCaseGeneratorAgent(BaseAgent):
                 slog.info(f"检测到历史用例 {len(existing_ids)} 条，已标记为 deprecated，将写入新一批用例")
 
             for case_data in cases_data:
+                module = module_catalog.resolve(
+                    str(
+                        case_data.get("module")
+                        or case_data.get("title")
+                        or case_data.get("description")
+                        or ""
+                    )
+                )
+                prepared = prepare_executable_case({**case_data, "module": module})
                 tc = TestCase(
                     project_id=ctx.project_id,
                     pipeline_id=ctx.pipeline_id,
@@ -459,6 +471,13 @@ class TestCaseGeneratorAgent(BaseAgent):
                     tags=case_data.get("tags", []),
                     platform_type=case_data.get("platform_type", platform_type),
                     status="pending_review",
+                    automation_level=lint_case(prepared)["level"],
+                    module=prepared.get("module") or None,
+                    exec_script=prepared.get("exec_script"),
+                    compile_status=prepared.get("compile_status"),
+                    compile_errors=prepared.get("compile_errors") or [],
+                    execution_mode=prepared.get("execution_mode"),
+                    step_contracts=prepared.get("step_contracts") or [],
                 )
                 session.add(tc)
 

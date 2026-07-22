@@ -97,6 +97,8 @@ class DeepSeekProvider(AbstractLLMProvider):
             return False
 
     def _select_model(self, request: LLMRequest) -> str:
+        if request.model:
+            return request.model
         config = settings.llm_providers_config.get("providers", {}).get("deepseek", {})
         models = config.get("models", [])
         if request.complexity == "low" and len(models) > 1:

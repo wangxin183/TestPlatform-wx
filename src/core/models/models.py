@@ -162,6 +162,23 @@ class TestCase(UUIDMixin, TimestampMixin, Base):
     directory_id = Column(String(36), ForeignKey("case_directories.id"), nullable=True)
     source = Column(String(20), default="manual")  # import/manual/auto
     test_plan_id = Column(String(36), nullable=True)  # FK to requirement_tasks.id when auto-generated
+    # 独立用例生成模块追溯字段（与 project/pipeline 解耦）
+    generation_id = Column(String(36), nullable=True, index=True)  # TCG-xxxx
+    source_analysis_id = Column(String(36), nullable=True, index=True)  # RA-xxxx
+    test_point_id = Column(String(36), nullable=True, index=True)  # TP-xxx
+    # ready | semi | manual — App 执行半硬门禁用
+    automation_level = Column(String(20), nullable=True, index=True)
+    # 模块化可执行用例：NL 评审轨 + DSL/Agent 执行轨
+    module = Column(String(100), nullable=True, index=True)
+    exec_script = Column(JSON, nullable=True)
+    compile_status = Column(String(20), nullable=True, default="pending", index=True)
+    compile_errors = Column(JSON, nullable=True)
+    execution_mode = Column(String(20), nullable=True, default="hybrid")
+    step_contracts = Column(JSON, nullable=True)
+    # {login_state, user_type, entry_context, notes}
+    precondition_spec = Column(JSON, nullable=True)
+    automation_block_reason = Column(String(500), nullable=True)
+    assertion_quality = Column(String(20), nullable=True)  # strong|adequate|weak|none
 
     project = relationship("Project", back_populates="test_cases")
     pipeline = relationship("Pipeline", back_populates="test_cases")

@@ -21,3 +21,17 @@ Thumbs.db
 
 # 部署环境变量
 deployments/.env
+
+# Local MCP / tooling installs
+.tools/
+
+# Playwright MCP 本地调试产物
+.playwright-mcp/
+
+# Codegraph 本机进程
+.codegraph/daemon.pid
+.codegraph/*.pid
+
+# 本地二进制用例/数据表（勿入库）
+data/ACN_cases.xlsx
+data/*.xlsx

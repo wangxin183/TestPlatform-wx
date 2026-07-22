@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.core.database import get_db
 from src.core.models.models import TestCase
+from src.services.testcase_contract_compiler import prepare_executable_case
 
 router = APIRouter(tags=["test_cases"])
 
@@ -80,9 +81,30 @@ async def update_test_case(case_id: str, body: dict, db: AsyncSession = Depends(
     if not tc:
         return {"success": False, "data": None, "error": "Not found"}
 
-    for field in ("title", "description", "preconditions", "steps", "notes", "priority", "test_type", "tags"):
+    for field in (
+        "title", "description", "preconditions", "steps", "notes",
+        "priority", "test_type", "tags", "module",
+    ):
         if field in body:
             setattr(tc, field, body[field])
+    prepared = prepare_executable_case(
+        {
+            "case_id": str(tc.id),
+            "title": tc.title,
+            "description": tc.description or "",
+            "preconditions": tc.preconditions or "",
+            "steps": tc.steps or [],
+            "tags": tc.tags or [],
+            "module": tc.module or "",
+            "test_point_id": tc.test_point_id or "",
+        }
+    )
+    tc.module = prepared.get("module") or None
+    tc.exec_script = prepared.get("exec_script")
+    tc.compile_status = prepared.get("compile_status")
+    tc.compile_errors = prepared.get("compile_errors") or []
+    tc.execution_mode = prepared.get("execution_mode")
+    tc.step_contracts = prepared.get("step_contracts") or []
     db.add(tc)
     await db.commit()
     return {"success": True, "data": _serialize(tc), "error": None}
@@ -157,5 +179,12 @@ def _serialize(tc: TestCase) -> dict:
         "reject_reason": getattr(tc, "reject_reason", None),
         "ai_score": getattr(tc, "ai_score", None),
         "ai_flags": getattr(tc, "ai_flags", None),
+        "automation_level": getattr(tc, "automation_level", None),
+        "module": getattr(tc, "module", None),
+        "exec_script": getattr(tc, "exec_script", None),
+        "compile_status": getattr(tc, "compile_status", None) or "pending",
+        "compile_errors": getattr(tc, "compile_errors", None) or [],
+        "execution_mode": getattr(tc, "execution_mode", None) or "hybrid",
+        "step_contracts": getattr(tc, "step_contracts", None) or [],
         "created_at": tc.created_at.isoformat() if tc.created_at else None,
     }

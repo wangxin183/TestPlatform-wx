@@ -4,6 +4,11 @@
   - 基础设施故障 → runtime 退避重试 × N → 强制 fallback 一次
   - 输出格式/质量故障 → runtime 调用 `utility.diagnoser` 自诊断 × M → 输出修正结果
 
+> 演进说明（2026-07-22）：跨阶段统一内核见 `src/services/heal_loop.py`
+> （StageAgentHarness / HealLoop）。本模块暂保留 RA 专用行为以兼容现有调用；
+> 后续将薄包装委托至 heal_loop。设计文档：
+> docs/superpowers/plans/2026-07-22-agent-engineering-self-heal.md
+
 调用哪一个具体 backend（Claude Code / Codex / Cursor 等）完全由
 `agent_runtime` 按 role 配置决定，本编排器不再包含任何 CLI 品牌硬编码分支。
 

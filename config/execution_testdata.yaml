@@ -1,0 +1,137 @@
+# 执行运行时测试数据（可按环境覆盖）
+# 会员/非会员现阶段同号，后续只改本文件拆号即可。
+# 登录流程依据 storage/setup_recordings/login_20260721_221510 录制整理。
+
+users:
+  member:
+    username: "18304071330"
+    password: "wx1013.wangxin"
+  non_member:
+    username: "18304071330"
+    password: "wx1013.wangxin"
+
+comics:
+  member_free: "兽黑狂妃"
+  member_discount: "百炼成神"
+  pay_per_episode: "星梦偶像计划"
+  free: "花千骨"
+  wait_free: "风起苍岚"
+
+animes:
+  member_free: "航海王"
+  free: "开心锤锤"
+
+reader_page_mode:
+  horizontal: "元尊"
+  vertical: "兽黑狂妃"
+
+# 登录/搜索 UI 选择器（type 对齐 DSL locator）
+selectors:
+  my_tab:
+    type: text
+    value: "我的"
+  # 底部「我的」标题控件（更稳）
+  my_tab_id:
+    type: id
+    value: "tv_menu_item_title"
+  login_sheet_title:
+    type: text
+    value: "登录后观影更流畅"
+  phone_input:
+    type: id
+    value: "et_phone"
+  phone_clear:
+    type: id
+    value: "img_delete_b"
+  password_input:
+    type: id
+    value: "et_pwd"
+  switch_to_password_login:
+    type: text
+    value: "密码登录"
+  switch_to_password_login_layout:
+    type: id
+    value: "other_lite_pwd_sms_login_layout"
+  agree_protocol:
+    type: id
+    value: "psdk_cb_protocol_info"
+  password_login_submit:
+    type: id
+    value: "tv_login"
+  sms_login_submit:
+    type: id
+    value: "tv_sms_login"
+  login_close:
+    type: id
+    value: "iv_close"
+  logged_in_avatar:
+    type: id
+    value: "avatar_view"
+  logged_in_name:
+    type: id
+    value: "nameTv"
+  # 未登录我的页昵称文案（点此打开登录；勿把仅有 avatar_view 当已登录）
+  guest_login_entry:
+    type: text
+    value: "小伙伴，戳我登录"
+  security_check_title:
+    type: text
+    value: "安全检测"
+  # 底栏主频道（登录完成后回到可搜索首页）
+  home_tab_comic:
+    type: text
+    value: "漫画"
+  home_tab_anime:
+    type: text
+    value: "动画"
+  # 首页搜索入口：实机点 im_search 无反应，必须点 search_flipper
+  search_entry:
+    type: id
+    value: "search_flipper"
+  search_entry_icon:
+    type: id
+    value: "im_search"
+  # 搜索页输入框（录制 search_comic_anime_20260722_015509）
+  search_input:
+    type: id
+    value: "input_box"
+  search_tab_anime:
+    type: text
+    value: "动画"
+  search_tab_comic:
+    type: text
+    value: "漫画"
+  # 结果首条阅读按钮文案（录制为「立即阅读」；动画侧可能是「开始阅读」）
+  search_result_read:
+    type: text
+    value: "立即阅读"
+  search_result_read_alt:
+    type: text
+    value: "开始阅读"
+  search_result_read_id:
+    type: id
+    value: "result_common_one_btn_left_text"
+  logout_button:
+    type: text
+    value: "退出登录"
+
+login:
+  # 首次点「我的」常自动弹出登录半屏；若未弹出再点页面内登录入口
+  auto_popup_on_mine_tab: true
+  # 安全检测（点选图）非每次出现；出现时用千问 Vision 自动点选
+  security_check_timeout_seconds: 120
+  security_check_solver: qwen_maas
+  security_check_model: "qwen3-vl-plus"
+  security_check_max_attempts: 3
+  # 拉起 App 后等待离开闪屏的最长时间
+  app_ready_timeout_seconds: 30
+  success_activity_substr: "ComicsMainActivity"
+  login_activity_substr: "LiteAccountActivity"
+  security_activity_substr: "PWebViewActivity"
+  # nameTv 文案含这些字样 → 未登录（未登录页也有 avatar_view）
+  guest_name_markers:
+    - "戳我登录"
+    - "点击登录"
+    - "请登录"
+    - "立即登录"
+    - "登录/注册"

@@ -81,9 +81,15 @@ MODULE_NOTE_MAP: dict[str, list[str]] = {
     "通用": ["通用功能/通用功能.md", "通用功能/安装启动.md", "通用功能/URL_Schemes.md"],
 }
 
-MAX_NOTES_TO_LOAD = 5
-MAX_NOTE_CONTENT_LENGTH = 3000
-MAX_DEFECTS_TO_SHOW = 50
+MAX_NOTES_TO_LOAD = 3
+MAX_NOTE_CONTENT_LENGTH = 1500
+MAX_CHUNKS_PER_NOTE = 2
+MAX_NOTES_IN_CONTEXT = 4
+MAX_DEFECTS_TO_SHOW = 15
+MAX_DEFECT_LINES = 12
+# 用户指定模块时语义检索更聚焦，避免与关键词整篇笔记重复堆叠
+USER_MODULE_SEMANTIC_TOP_K = 4
+AUTO_SEMANTIC_TOP_K = 5
 
 
 @dataclass
@@ -94,23 +100,23 @@ class KnowledgeContext:
     defect_summary: str = ""
     total_defects: int = 0
     mentioned_modules: list[str] = field(default_factory=list)
-    retrieval_mode: str = "none"  # semantic | keyword | none
+    user_specified_modules: list[str] = field(default_factory=list)
+    retrieval_mode: str = "none"  # semantic | keyword | mixed | none
 
     def to_prompt_text(self) -> str:
         """将加载的知识上下文组装为适合注入 Agent 的 Markdown 文本"""
         parts = []
 
         if self.note_contents:
-            mode_label = (
-                "语义检索相关片段"
-                if self.retrieval_mode == "semantic"
-                else "关键词匹配模块笔记"
-            )
             parts.append("## 知识库参考（来自 Obsidian）")
             parts.append(
-                "以下是与本次需求相关的**历史产品笔记**，仅用于术语/交互习惯参考。"
+                "以下是与本次需求相关的**历史产品笔记片段**，仅用于术语/交互习惯参考。"
                 "**不得**据此新增 FR/NFR，不得把知识库内容当作需求来源。\n"
             )
+            if self.user_specified_modules:
+                parts.append(
+                    f"> 用户指定模块：{'、'.join(self.user_specified_modules)}\n"
+                )
             for note_path, content in self.note_contents.items():
                 module_name = Path(note_path).stem
                 parts.append(f"### {module_name}")
@@ -180,41 +186,93 @@ class KnowledgeBaseLoader:
         self,
         doc_content: str,
         platform_type: str = "",
+        user_modules: str = "",
     ) -> KnowledgeContext:
-        """分析文档内容，按需构建知识上下文。"""
+        """分析文档内容，按需构建知识上下文。
+
+        Args:
+            doc_content: PRD Markdown 正文
+            platform_type: 目标平台（缺陷筛选）
+            user_modules: 用户在前端填写的模块名，逗号/顿号分隔
+        """
         ctx = KnowledgeContext()
-        ctx.mentioned_modules = self._detect_modules(doc_content)
+        ctx.user_specified_modules = self._parse_user_modules(user_modules)
+        detected = self._detect_modules(doc_content)
+        ctx.mentioned_modules = self._merge_module_lists(
+            ctx.user_specified_modules, detected
+        )
 
-        # 1) 语义检索优先
-        if self._try_semantic_retrieve(ctx, doc_content):
-            ctx.retrieval_mode = "semantic"
-            logger.info(
-                "knowledge_semantic_loaded",
-                notes=len(ctx.loaded_notes),
-                modules=ctx.mentioned_modules[:10],
+        focus_modules = ctx.user_specified_modules or ctx.mentioned_modules[:8]
+        allowed_paths: set[str] | None = None
+        if ctx.user_specified_modules:
+            resolved = self._resolve_note_paths(ctx.user_specified_modules)
+            if resolved:
+                allowed_paths = set(resolved)
+
+        semantic_ok = False
+        if ctx.user_specified_modules:
+            # 用户指定模块：先在限定笔记内语义检索，失败再关键词整篇
+            semantic_ok = self._try_semantic_retrieve(
+                ctx,
+                doc_content,
+                focus_modules=focus_modules,
+                allowed_note_paths=allowed_paths,
+                top_k=USER_MODULE_SEMANTIC_TOP_K,
+                max_context_chars=min(self._kb_settings.max_context_chars, 5000),
             )
-        elif self._kb_settings.keyword_fallback:
-            # 2) 关键词兜底
-            self._keyword_retrieve(ctx)
-            ctx.retrieval_mode = "keyword" if ctx.note_contents else "none"
-            logger.info(
-                "knowledge_keyword_fallback",
-                modules=ctx.mentioned_modules,
-                loaded=len(ctx.note_contents),
-            )
+            if not semantic_ok and self._kb_settings.keyword_fallback:
+                self._keyword_retrieve(ctx, ctx.user_specified_modules)
+                ctx.retrieval_mode = "keyword" if ctx.note_contents else "none"
+            elif semantic_ok:
+                ctx.retrieval_mode = "semantic"
+            else:
+                ctx.retrieval_mode = "none"
         else:
-            logger.info("knowledge_no_context", reason="semantic_miss_and_fallback_disabled")
+            # 未指定模块：语义优先，关键词兜底；整体更保守
+            semantic_ok = self._try_semantic_retrieve(
+                ctx,
+                doc_content,
+                focus_modules=focus_modules,
+                allowed_note_paths=None,
+                top_k=min(self._kb_settings.top_k, AUTO_SEMANTIC_TOP_K),
+                max_context_chars=min(self._kb_settings.max_context_chars, 6000),
+            )
+            if semantic_ok:
+                ctx.retrieval_mode = "semantic"
+            elif self._kb_settings.keyword_fallback and ctx.mentioned_modules:
+                self._keyword_retrieve(ctx, ctx.mentioned_modules[:MAX_NOTES_TO_LOAD])
+                ctx.retrieval_mode = "keyword" if ctx.note_contents else "none"
+            else:
+                ctx.retrieval_mode = "none"
 
-        # 3) 缺陷摘要（仍按模块词）
-        if ctx.mentioned_modules:
+        logger.info(
+            "knowledge_context_built",
+            mode=ctx.retrieval_mode,
+            user_modules=ctx.user_specified_modules,
+            mentioned=ctx.mentioned_modules[:10],
+            notes=len(ctx.note_contents),
+        )
+
+        # 缺陷摘要：优先用户指定模块，否则用合并后的模块列表
+        defect_modules = ctx.user_specified_modules or ctx.mentioned_modules
+        if defect_modules:
             ctx.total_defects, ctx.defect_summary = self._load_defects(
-                ctx.mentioned_modules, platform_type
+                defect_modules, platform_type
             )
             logger.info("knowledge_defects_loaded", total=ctx.total_defects)
 
         return ctx
 
-    def _try_semantic_retrieve(self, ctx: KnowledgeContext, doc_content: str) -> bool:
+    def _try_semantic_retrieve(
+        self,
+        ctx: KnowledgeContext,
+        doc_content: str,
+        *,
+        focus_modules: list[str],
+        allowed_note_paths: set[str] | None = None,
+        top_k: int | None = None,
+        max_context_chars: int | None = None,
+    ) -> bool:
         index = self._get_index()
         if index is None or not index.is_available():
             return False
@@ -222,62 +280,143 @@ class KnowledgeBaseLoader:
         try:
             if index.block_count() == 0:
                 index.ensure_index(force=False)
-            # 轻量增量：每次请求尝试一次（内部按 hash 跳过未变更文件）
             index.ensure_index(force=False)
 
-            # 查询：文档前部 + 章节标题 + 已识别模块名（避免整篇超长，并提高相关性）
             headings = re.findall(r"^#{1,3}\s+(.+)$", doc_content, flags=re.MULTILINE)
-            query_parts = [doc_content[:1800]]
+            query_parts: list[str] = []
+            if focus_modules:
+                query_parts.append("关键模块：" + "、".join(focus_modules[:8]))
             if headings:
-                query_parts.append("章节：" + "；".join(h.strip() for h in headings[:20]))
-            if ctx.mentioned_modules:
-                query_parts.append("关键模块：" + "、".join(ctx.mentioned_modules[:12]))
+                query_parts.append(
+                    "章节：" + "；".join(h.strip() for h in headings[:10])
+                )
+            # 用户指定模块时用更短 PRD 摘要，避免 query 过长引入无关块
+            doc_excerpt = doc_content[:600 if ctx.user_specified_modules else 1200]
+            query_parts.append(doc_excerpt)
             query = "\n".join(query_parts)
 
+            effective_top_k = top_k if top_k is not None else self._kb_settings.top_k
             hits = index.search(
                 query,
-                top_k=self._kb_settings.top_k,
+                top_k=effective_top_k,
                 min_score=self._kb_settings.min_score,
             )
             if not hits:
                 return False
 
-            # 按笔记聚合，控制总上下文长度
-            max_chars = self._kb_settings.max_context_chars
-            used = 0
+            if allowed_note_paths:
+                scoped = [h for h in hits if h.note_path in allowed_note_paths]
+                if scoped:
+                    hits = scoped
+
+            max_chars = max_context_chars or self._kb_settings.max_context_chars
             note_order: list[str] = []
             note_chunks: dict[str, list[str]] = {}
+            note_chunk_count: dict[str, int] = {}
+            seen_prefixes: set[str] = set()
+            used = 0
 
             for hit in hits:
+                if (
+                    len(note_order) >= MAX_NOTES_IN_CONTEXT
+                    and hit.note_path not in note_chunks
+                ):
+                    continue
+                if note_chunk_count.get(hit.note_path, 0) >= MAX_CHUNKS_PER_NOTE:
+                    continue
+
                 snippet = hit.content.strip()
                 if hit.heading:
                     snippet = f"**{hit.heading}**\n{snippet}"
-                snippet = f"{snippet}\n\n（相关度 {hit.score:.2f}）"
+
+                prefix = snippet[:100]
+                if prefix in seen_prefixes:
+                    continue
+                seen_prefixes.add(prefix)
+
                 if used + len(snippet) > max_chars and note_order:
                     break
                 if hit.note_path not in note_chunks:
                     note_chunks[hit.note_path] = []
                     note_order.append(hit.note_path)
                 note_chunks[hit.note_path].append(snippet)
+                note_chunk_count[hit.note_path] = (
+                    note_chunk_count.get(hit.note_path, 0) + 1
+                )
                 used += len(snippet)
+
+            if not note_order:
+                return False
 
             ctx.loaded_notes = note_order
             ctx.note_contents = {
                 path: "\n\n".join(note_chunks[path]) for path in note_order
             }
-            return bool(ctx.note_contents)
+            return True
         except Exception as exc:
             logger.warning("knowledge_semantic_failed", error=str(exc)[:300])
             return False
 
-    def _keyword_retrieve(self, ctx: KnowledgeContext) -> None:
-        if not ctx.mentioned_modules:
+    def _keyword_retrieve(
+        self, ctx: KnowledgeContext, module_names: list[str]
+    ) -> None:
+        if not module_names:
             return
-        note_paths = self._resolve_note_paths(ctx.mentioned_modules)
+        note_paths = self._resolve_note_paths(module_names)
         ctx.loaded_notes = note_paths[:MAX_NOTES_TO_LOAD]
         ctx.note_contents = self._load_notes(ctx.loaded_notes)
 
     # ---- 模块检测 ----
+
+    @staticmethod
+    def _parse_user_modules(user_modules: str) -> list[str]:
+        """解析用户填写的模块名（逗号/顿号/分号分隔）。"""
+        if not user_modules or not user_modules.strip():
+            return []
+        parts = re.split(r"[,，、;；]", user_modules)
+        resolved: list[str] = []
+        seen: set[str] = set()
+        for raw in parts:
+            token = raw.strip()
+            if not token:
+                continue
+            keyword = KnowledgeBaseLoader._match_module_keyword(token)
+            key = keyword or token
+            norm = key.lower()
+            if norm in seen:
+                continue
+            seen.add(norm)
+            resolved.append(key)
+        return resolved
+
+    @staticmethod
+    def _match_module_keyword(token: str) -> str | None:
+        """将用户输入映射到 MODULE_NOTE_MAP 关键词（最长优先）。"""
+        if token in MODULE_NOTE_MAP:
+            return token
+        token_lower = token.lower()
+        for keyword in sorted(MODULE_NOTE_MAP.keys(), key=len, reverse=True):
+            kw_lower = keyword.lower()
+            if (
+                kw_lower == token_lower
+                or keyword in token
+                or token in keyword
+            ):
+                return keyword
+        return None
+
+    @staticmethod
+    def _merge_module_lists(
+        user_modules: list[str], detected: list[str]
+    ) -> list[str]:
+        """用户指定模块优先，再追加 PRD 自动识别且未重复的模块。"""
+        merged: list[str] = list(user_modules)
+        seen = {m.lower() for m in merged}
+        for name in detected:
+            if name.lower() not in seen:
+                merged.append(name)
+                seen.add(name.lower())
+        return merged
 
     def _detect_modules(self, doc_content: str) -> list[str]:
         found = set()
@@ -288,14 +427,35 @@ class KnowledgeBaseLoader:
         return sorted(found, key=lambda x: -len(x))
 
     def _resolve_note_paths(self, module_names: list[str]) -> list[str]:
-        seen = set()
-        paths = []
+        seen: set[str] = set()
+        paths: list[str] = []
         for name in module_names:
-            for p in MODULE_NOTE_MAP.get(name, []):
-                if p not in seen:
-                    seen.add(p)
-                    paths.append(p)
+            mapped = MODULE_NOTE_MAP.get(name, [])
+            if mapped:
+                for p in mapped:
+                    if p not in seen:
+                        seen.add(p)
+                        paths.append(p)
+            else:
+                for p in self._find_notes_by_name(name):
+                    if p not in seen:
+                        seen.add(p)
+                        paths.append(p)
         return paths
+
+    def _find_notes_by_name(self, name: str) -> list[str]:
+        """按文件名/路径模糊匹配 vault 中的笔记（用户输入未命中映射表时）。"""
+        if not self.vault_path.exists():
+            return []
+        name_lower = name.lower()
+        results: list[str] = []
+        for md in sorted(self.vault_path.rglob("*.md")):
+            rel = str(md.relative_to(self.vault_path))
+            if name_lower in md.stem.lower() or name_lower in rel.lower():
+                results.append(rel)
+                if len(results) >= 2:
+                    break
+        return results
 
     def _load_notes(self, note_paths: list[str]) -> dict[str, str]:
         contents = {}
@@ -379,7 +539,7 @@ class KnowledgeBaseLoader:
             if total == 0:
                 return 0, "（未找到与该模块相关的历史缺陷）"
 
-            summary_lines = [f"- {s[:120]}" for s in matched[:30]]
+            summary_lines = [f"- {s[:100]}" for s in matched[:MAX_DEFECT_LINES]]
             return total, "\n".join(summary_lines)
 
         except Exception as exc:

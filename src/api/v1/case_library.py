@@ -18,6 +18,9 @@ from src.core.models.models import Project, RequirementTask, TestCase, TestCaseD
 from src.pipeline.context import PipelineContext
 from src.pipeline.stages.base import StageInput
 from src.pipeline.stages.generation import GenerationStage
+from src.services.testcase_compile_advisor import advise_compile_case, advise_prepared_cases
+from src.services.testcase_contract_compiler import prepare_executable_case
+from src.services.testcase_module_catalog import module_catalog
 from src.utils.case_parser import parse_cases
 from src.utils.file_storage import exists as storage_exists, read as storage_read, save as storage_save
 from src.utils.logging_config import get_logger
@@ -105,6 +108,8 @@ async def delete_directory(dir_id: str, db: AsyncSession = Depends(get_db)):
 async def list_cases(
     directory_id: str = Query(None),
     project_id: str = Query(None),
+    generation_id: str = Query(None),
+    source_analysis_id: str = Query(None),
     page: int = Query(1, ge=1),
     size: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
@@ -116,6 +121,10 @@ async def list_cases(
         query = query.where(TestCase.directory_id.is_(None))
     if project_id:
         query = query.where(TestCase.project_id == project_id)
+    if generation_id:
+        query = query.where(TestCase.generation_id == generation_id)
+    if source_analysis_id:
+        query = query.where(TestCase.source_analysis_id == source_analysis_id)
     query = query.order_by(TestCase.created_at.desc()).offset((page - 1) * size).limit(size)
     result = await db.execute(query)
     cases = result.scalars().all()
@@ -147,8 +156,26 @@ async def import_cases(
         if not cases:
             return {"success": False, "data": None, "error": "文件中未识别到有效用例"}
 
-        saved = []
+        saved_payloads: list[dict] = []
         for c in cases:
+            module = module_catalog.resolve(
+                str(c.get("module") or c.get("directory_path") or c.get("title") or "")
+            )
+            prepared = prepare_executable_case({**c, "module": module})
+            saved_payloads.append({"raw": c, "prepared": prepared})
+
+        advised = await advise_prepared_cases(
+            [row["prepared"] for row in saved_payloads],
+            workdir="storage/case_library",
+            task_id="case-import",
+        )
+        for i, prepared in enumerate(advised):
+            saved_payloads[i]["prepared"] = prepared
+
+        saved = []
+        for row in saved_payloads:
+            c = row["raw"]
+            prepared = row["prepared"]
             tc = TestCase(
                 title=c.get("title", "未命名用例"),
                 description=c.get("description", ""),
@@ -160,6 +187,15 @@ async def import_cases(
                 platform_type=c.get("platform_type", ""),
                 directory_id=directory_id or None,
                 source="import",
+                module=prepared.get("module") or None,
+                exec_script=prepared.get("exec_script"),
+                compile_status=prepared.get("compile_status"),
+                compile_errors=prepared.get("compile_errors") or [],
+                execution_mode=prepared.get("execution_mode"),
+                step_contracts=prepared.get("step_contracts") or [],
+                precondition_spec=prepared.get("precondition_spec"),
+                automation_block_reason=prepared.get("automation_block_reason"),
+                assertion_quality=prepared.get("assertion_quality"),
             )
             db.add(tc)
             saved.append(tc)
@@ -183,6 +219,7 @@ async def create_case(
     priority: str = Form("中"),
     platform_type: str = Form(""),
     tags: str = Form("[]"),
+    module: str = Form(""),
     db: AsyncSession = Depends(get_db),
 ):
     try:
@@ -191,6 +228,21 @@ async def create_case(
     except json.JSONDecodeError:
         return {"success": False, "data": None, "error": "steps 或 tags 格式错误"}
 
+    prepared = prepare_executable_case(
+        {
+            "title": title,
+            "description": description,
+            "preconditions": preconditions,
+            "steps": steps_list,
+            "tags": tags_list,
+            "module": module,
+        }
+    )
+    prepared = await advise_compile_case(
+        prepared,
+        workdir="storage/case_library",
+        task_id="case-create",
+    )
     tc = TestCase(
         title=title,
         description=description,
@@ -202,6 +254,15 @@ async def create_case(
         tags=tags_list,
         directory_id=directory_id or None,
         source="manual",
+        module=prepared.get("module") or None,
+        exec_script=prepared.get("exec_script"),
+        compile_status=prepared.get("compile_status"),
+        compile_errors=prepared.get("compile_errors") or [],
+        execution_mode=prepared.get("execution_mode"),
+        step_contracts=prepared.get("step_contracts") or [],
+        precondition_spec=prepared.get("precondition_spec"),
+        automation_block_reason=prepared.get("automation_block_reason"),
+        assertion_quality=prepared.get("assertion_quality"),
     )
     db.add(tc)
     await db.commit()
@@ -220,6 +281,7 @@ async def update_case(
     priority: str = Form(None),
     directory_id: str = Form(None),
     tags: str = Form(None),
+    module: str = Form(None),
     db: AsyncSession = Depends(get_db),
 ):
     tc = await db.get(TestCase, case_id)
@@ -231,6 +293,7 @@ async def update_case(
     if test_type is not None: tc.test_type = test_type
     if priority is not None: tc.priority = priority
     if directory_id is not None: tc.directory_id = directory_id or None
+    if module is not None: tc.module = module or None
     if steps is not None:
         try:
             tc.steps = json.loads(steps) if isinstance(steps, str) else steps
@@ -241,6 +304,31 @@ async def update_case(
             tc.tags = json.loads(tags) if isinstance(tags, str) else tags
         except json.JSONDecodeError:
             pass
+    prepared = prepare_executable_case(
+        {
+            "case_id": str(tc.id),
+            "title": tc.title,
+            "description": tc.description or "",
+            "preconditions": tc.preconditions or "",
+            "steps": tc.steps or [],
+            "tags": tc.tags or [],
+            "module": tc.module or "",
+        }
+    )
+    prepared = await advise_compile_case(
+        prepared,
+        workdir="storage/case_library",
+        task_id=str(tc.id),
+    )
+    tc.module = prepared.get("module") or None
+    tc.exec_script = prepared.get("exec_script")
+    tc.compile_status = prepared.get("compile_status")
+    tc.compile_errors = prepared.get("compile_errors") or []
+    tc.execution_mode = prepared.get("execution_mode")
+    tc.step_contracts = prepared.get("step_contracts") or []
+    tc.precondition_spec = prepared.get("precondition_spec")
+    tc.automation_block_reason = prepared.get("automation_block_reason")
+    tc.assertion_quality = prepared.get("assertion_quality")
     await db.commit()
     await db.refresh(tc)
     return {"success": True, "data": _serialize_case(tc), "error": None}
@@ -389,7 +477,21 @@ def _serialize_case(c: TestCase) -> dict:
         "description": c.description, "preconditions": c.preconditions,
         "steps": c.steps, "priority": c.priority, "test_type": c.test_type,
         "tags": c.tags, "platform_type": c.platform_type,
+        "status": c.status,
         "source": c.source or "manual", "test_plan_id": c.test_plan_id,
+        "generation_id": getattr(c, "generation_id", None),
+        "source_analysis_id": getattr(c, "source_analysis_id", None),
+        "test_point_id": getattr(c, "test_point_id", None),
+        "automation_level": getattr(c, "automation_level", None),
+        "module": getattr(c, "module", None),
+        "exec_script": getattr(c, "exec_script", None),
+        "compile_status": getattr(c, "compile_status", None) or "pending",
+        "compile_errors": getattr(c, "compile_errors", None) or [],
+        "execution_mode": getattr(c, "execution_mode", None) or "hybrid",
+        "step_contracts": getattr(c, "step_contracts", None) or [],
+        "precondition_spec": getattr(c, "precondition_spec", None),
+        "automation_block_reason": getattr(c, "automation_block_reason", None),
+        "assertion_quality": getattr(c, "assertion_quality", None),
         "created_at": c.created_at.isoformat() if c.created_at else None,
         "updated_at": c.updated_at.isoformat() if c.updated_at else None,
     }

@@ -24,3 +24,10 @@ anthropic>=0.30.0
 cryptography>=42.0.0
 # 统一智能体运行时 —— Cursor 后端（可选，缺失时 CursorBackend 自动 unavailable）
 cursor-sdk>=0.1.0
+# 独立测试执行运行时（execution_runtime）—— iOS 真机 App UI 自动化
+Appium-Python-Client>=4.0.0
+pytest>=8.0.0
+allure-pytest>=2.13.0
+# OCR 兜底（可选，缺失自动降级；体积较大按需安装）
+# paddleocr>=2.7.0
+# paddlepaddle>=2.6.0

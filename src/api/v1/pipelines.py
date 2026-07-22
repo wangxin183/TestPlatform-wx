@@ -607,5 +607,12 @@ def _serialize_tc(tc) -> dict:
         "reject_reason": getattr(tc, "reject_reason", None),
         "ai_score": getattr(tc, "ai_score", None),
         "ai_flags": getattr(tc, "ai_flags", None),
+        "automation_level": getattr(tc, "automation_level", None),
+        "module": getattr(tc, "module", None),
+        "exec_script": getattr(tc, "exec_script", None),
+        "compile_status": getattr(tc, "compile_status", None) or "pending",
+        "compile_errors": getattr(tc, "compile_errors", None) or [],
+        "execution_mode": getattr(tc, "execution_mode", None) or "hybrid",
+        "step_contracts": getattr(tc, "step_contracts", None) or [],
         "created_at": tc.created_at.isoformat() if tc.created_at else None,
     }
