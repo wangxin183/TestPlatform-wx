@@ -1,0 +1,239 @@
+app:
+  name: 爱奇艺叭嗒
+  package: com.iqiyi.acg
+
+modules:
+  - id: push
+    name: Push
+    aliases: [推送, 通知]
+    entry_nl: "启动 App，通过测试推送或系统通知进入对应落地页"
+    entry_steps: []
+    page_states: []
+
+  - id: personal_profile
+    name: 个人主页
+    aliases: [用户主页, 作者主页]
+    entry_nl: "进入社区或内容详情，点击用户头像进入个人主页"
+    entry_steps: []
+    page_states: []
+
+  - id: anime_channel
+    name: 动漫频道
+    aliases: [漫画tab, 漫画频道, 动漫tab]
+    entry_nl: "启动 App，进入漫画 tab"
+    entry_steps:
+      - action: tap
+        description: "进入漫画 tab"
+        locator: {type: text, value: 漫画}
+      - action: wait
+        description: "等待动漫频道加载"
+        until: {type: text, value: 漫画}
+    page_states:
+      - id: anime_channel_main
+        package: com.iqiyi.acg
+        required_all: []
+        required_any:
+          - {type: text, value: 漫画}
+          - {type: text, value: 动漫}
+        forbidden_any: []
+
+  - id: anime_half_player
+    name: 动画半播页
+    aliases: [半播页, 动画播放页]
+    entry_nl: "进入动漫频道，点击任一动画卡片进入动画半播页"
+    entry_steps: []
+    page_states: []
+
+  - id: image_post_detail
+    name: 图文帖详情页
+    aliases: [图文帖, 图文详情]
+    entry_nl: "进入社区，点击任一图文帖子进入图文帖详情页"
+    entry_steps: []
+    page_states: []
+
+  - id: circle
+    name: 圈子
+    aliases: [圈子页]
+    entry_nl: "进入社区，点击圈子入口进入圈子页面"
+    entry_steps: []
+    page_states: []
+
+  - id: install_launch
+    name: 安装启动
+    aliases: [安装, 启动, 冷启动]
+    entry_nl: "安装并启动 App，停留在启动完成后的首个可交互页面"
+    entry_steps:
+      - action: launch_app
+        description: "启动被测 App"
+    page_states:
+      - id: app_foreground
+        package: com.iqiyi.acg
+        required_all: []
+        required_any: []
+        forbidden_any: []
+
+  - id: mine
+    name: 我的
+    aliases: [我的tab, 我的页面]
+    entry_nl: "启动 App，点击底部“我的”进入我的页面"
+    entry_steps:
+      - action: tap
+        description: "进入我的 tab"
+        locator: {type: text, value: 我的}
+      - action: wait
+        description: "等待我的页面加载"
+        until: {type: text, value: 我的}
+    page_states:
+      - id: mine_main
+        package: com.iqiyi.acg
+        required_all: []
+        required_any:
+          - {type: text, value: 我的}
+          - {type: text, value: 登录}
+        forbidden_any: []
+
+  - id: search
+    name: 搜索
+    aliases: [搜索页, 搜索页面]
+    entry_nl: "启动 App，点击搜索入口进入搜索页面"
+    entry_steps:
+      - action: tap
+        description: "点击搜索入口"
+        locator: {type: text, value: 搜索}
+      - action: wait
+        description: "等待搜索页面加载"
+        until: {type: text, value: 搜索}
+    page_states:
+      - id: search_main
+        package: com.iqiyi.acg
+        required_all: []
+        required_any:
+          - {type: text, value: 搜索}
+        forbidden_any: []
+
+  - id: messages
+    name: 消息
+    aliases: [消息页, 消息中心]
+    entry_nl: "进入我的页面，点击消息入口进入消息页面"
+    entry_steps: []
+    page_states: []
+
+  - id: comic_list_detail
+    name: 漫单详情页
+    aliases: [漫单, 漫单详情]
+    entry_nl: "进入动漫频道，点击任一漫单卡片进入漫单详情页"
+    entry_steps: []
+    page_states: []
+
+  - id: comic_detail
+    name: 漫画详情页
+    aliases: [漫画详情, 作品详情]
+    entry_nl: "进入漫画 tab，点击任一漫画 card 进入漫画详情页"
+    entry_steps:
+      - action: tap
+        description: "进入漫画 tab"
+        locator: {type: text, value: 漫画}
+      - action: tap
+        description: "点击任一漫画 card"
+        locator: {type: xpath, value: "(//*[@clickable='true'])[1]"}
+    page_states:
+      - id: comic_detail_main
+        package: com.iqiyi.acg
+        required_all: []
+        required_any:
+          - {type: text, value: 开始阅读}
+          - {type: text, value: 目录}
+        forbidden_any: []
+
+  - id: manga_reader
+    name: 漫画阅读器
+    aliases: [阅读器, 漫画阅读, 阅读页]
+    entry_nl: "从漫画频道点击漫画卡片可直接进入漫画阅读器；以 page_states 判断是否到达"
+    entry_steps: []
+    page_states:
+      - id: reader_main
+        package: com.iqiyi.acg
+        activity: .comic.creader.AcgCReaderActivity
+        required_all:
+          - {type: id, value: reader_root}
+          - {type: id, value: fragment_read_real}
+        required_any:
+          - {type: id, value: tv_episode_title_water_mark}
+          - {type: id, value: reader_scroll_adapter_iv_image}
+        forbidden_any:
+          - {type: text, value: 立即支付}
+      - id: "external:会员页"
+        package: com.iqiyi.acg
+        activity: com.iqiyi.vipcashier.activity.PhonePayActivity
+        required_all:
+          - {type: id, value: vip_gold_page}
+          - {type: id, value: price_card}
+        required_any:
+          - {type: id, value: submitBtn}
+          - {type: id, value: agreeTitle}
+        forbidden_any: []
+
+  - id: manga_shortage_detail
+    name: 漫荒详情页
+    aliases: [漫荒, 漫荒详情]
+    entry_nl: "进入动漫频道，点击漫荒入口后打开任一内容进入漫荒详情页"
+    entry_steps: []
+    page_states: []
+
+  - id: landscape_short_video
+    name: 短视频横屏播放
+    aliases: [横屏短视频, 横屏播放]
+    entry_nl: "进入短视频竖屏播放页，切换到横屏播放"
+    entry_steps: []
+    page_states: []
+
+  - id: portrait_short_video
+    name: 短视频竖屏播放
+    aliases: [竖屏短视频, 短视频播放]
+    entry_nl: "进入社区或推荐流，点击任一短视频进入竖屏播放页"
+    entry_steps: []
+    page_states: []
+
+  - id: community
+    name: 社区
+    aliases: [社区tab, 社区页]
+    entry_nl: "启动 App，点击底部“社区”进入社区页面"
+    entry_steps:
+      - action: tap
+        description: "进入社区 tab"
+        locator: {type: text, value: 社区}
+    page_states:
+      - id: community_main
+        package: com.iqiyi.acg
+        required_all: []
+        required_any:
+          - {type: text, value: 社区}
+        forbidden_any: []
+
+  - id: governance_drill
+    name: 管控演练
+    aliases: [管控, 演练]
+    entry_nl: "按演练环境要求启动 App 并进入指定管控场景"
+    entry_steps: []
+    page_states: []
+
+  - id: video_post_detail
+    name: 视频帖子详情页
+    aliases: [视频帖子, 视频帖详情]
+    entry_nl: "进入社区，点击任一视频帖子进入视频帖子详情页"
+    entry_steps: []
+    page_states: []
+
+  - id: following
+    name: 追更
+    aliases: [追更页, 追更列表]
+    entry_nl: "进入我的页面，点击追更入口进入追更页面"
+    entry_steps: []
+    page_states: []
+
+  - id: long_image_post_detail
+    name: 长图帖详情页
+    aliases: [长图帖, 长图详情]
+    entry_nl: "进入社区，点击任一长图帖子进入长图帖详情页"
+    entry_steps: []
+    page_states: []

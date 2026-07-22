@@ -28,6 +28,7 @@ from pathlib import Path
 
 from src.agent_runtime import AgentRunResult, AgentTask, agent_runtime
 from src.agent_runtime.cli_shared import recover_json_from_workdir
+from src.core.config import settings
 from src.llm.prompts.skill_loader import load_skill
 from src.services.agent_cli import AgentCLI, CLICallResult
 from src.services.feishu_notifier import FeishuNotifier
@@ -81,15 +82,28 @@ CLAUDE_ANALYSIS_TIMEOUT = 600  # Claude Code 分析超时（秒）
 CODEX_REVIEW_TIMEOUT = 300  # Codex 审查超时（秒）
 MAX_RECOVERY_ATTEMPTS = 3    # 每个任务最多自动恢复次数（防无限重试循环）
 
-# 上下文窗口管理
-MODEL_CONTEXT_WINDOW = 180000   # 上下文窗口上限（90% 利用率，200K 窗口取 180K）
-OUTPUT_TOKEN_BUDGET = 20000     # 预留给模型输出
-SAFETY_MARGIN = 5000            # 安全余量
-MAX_INPUT_TOKENS = MODEL_CONTEXT_WINDOW - OUTPUT_TOKEN_BUDGET - SAFETY_MARGIN  # 155000
+# 上下文 / 分批：由 config/settings.yaml → requirement_analysis 驱动
+_ra = settings.requirement_analysis
+MODEL_CONTEXT_WINDOW = _ra.model_context_window
+OUTPUT_TOKEN_BUDGET = _ra.output_token_budget
+SAFETY_MARGIN = _ra.safety_margin
+MAX_INPUT_TOKENS = _ra.max_input_tokens
+FR_TP_BATCH_SIZE = _ra.fr_tp_batch_size
+NFR_TP_BATCH_SIZE = _ra.nfr_tp_batch_size
 
-# 测试点分批生成：避免单次 stdout JSON 过长被截断（如 RA-0011 仅保留 TP-083 尾部）
-FR_TP_BATCH_SIZE = 4
-NFR_TP_BATCH_SIZE = 6
+ANALYZER_KNOWLEDGE_NOTICE = (
+    "本阶段不向需求分析智能体提供知识库内容。"
+    "FR/NFR 只能来自本次上传的需求文档原文。"
+)
+
+
+def prepare_analyzer_skill(skill_body: str, knowledge_context: str = "") -> str:
+    """隔离知识库内容，避免历史笔记进入需求生成上下文。"""
+    del knowledge_context
+    return (skill_body or "").replace(
+        "{knowledge_context}",
+        ANALYZER_KNOWLEDGE_NOTICE,
+    )
 
 
 # ============================================================
@@ -104,6 +118,7 @@ class AnalysisTask:
     file_type: str = ""
     platform_type: str = ""
     custom_prompt: str = ""
+    obsidian_modules: str = ""
     status: str = "uploading"
     current_step: str = "等待开始"
     progress_pct: int = 0
@@ -157,6 +172,7 @@ def _scan_storage_for_tasks() -> dict[str, AnalysisTask]:
                     file_type=data.get("file_type", ""),
                     platform_type=data.get("platform_type", ""),
                     custom_prompt=data.get("custom_prompt", ""),
+                    obsidian_modules=data.get("obsidian_modules", ""),
                     status=data.get("status", "failed"),
                     current_step=data.get("current_step", ""),
                     progress_pct=data.get("progress_pct", 0),
@@ -340,6 +356,7 @@ def _save_task_state(task: AnalysisTask) -> None:
             "file_type": task.file_type,
             "platform_type": task.platform_type,
             "custom_prompt": task.custom_prompt,
+            "obsidian_modules": task.obsidian_modules,
             "status": task.status,
             "current_step": task.current_step,
             "progress_pct": task.progress_pct,
@@ -436,9 +453,11 @@ class RequirementAnalysisService:
 
                 md_path = STORAGE_BASE / task.analysis_id / f"{task.filename}.md"
                 if md_path.exists():
-                    async def _recover_with_cleanup(aid, mp, pt, cp):
+                    async def _recover_with_cleanup(aid, mp, pt, cp, om):
                         try:
-                            await self._run_analysis_with_content(aid, mp, pt, cp)
+                            await self._run_analysis_with_content(
+                                aid, mp, pt, cp, obsidian_modules=om
+                            )
                         except Exception as exc:
                             logger.error("recovery_task_error", analysis_id=aid, error=str(exc))
                             # 注意：不在此处释放文件锁。锁只在任务正常完成或手动重试时释放。
@@ -449,6 +468,7 @@ class RequirementAnalysisService:
                         _recover_with_cleanup(
                             task.analysis_id, md_path,
                             task.platform_type, task.custom_prompt,
+                            task.obsidian_modules,
                         )
                     )
                 else:
@@ -491,6 +511,7 @@ class RequirementAnalysisService:
                 file_type=file_type,
                 platform_type=platform_type,
                 custom_prompt=custom_prompt,
+                obsidian_modules=obsidian_modules.strip(),
                 status="uploading",
                 current_step="正在摄取文档...",
                 progress_pct=5,
@@ -506,6 +527,7 @@ class RequirementAnalysisService:
             file_type=file_type,
             file_size_bytes=len(file_content),
             platform_type=platform_type,
+            obsidian_modules=obsidian_modules.strip() or None,
         )
 
         # 后台执行（不阻塞 API 响应）
@@ -662,6 +684,7 @@ class RequirementAnalysisService:
 
             platform_type = task.platform_type
             custom_prompt = task.custom_prompt
+            obsidian_modules = task.obsidian_modules
             filename = task.filename
 
             task.status = "processing"
@@ -691,6 +714,7 @@ class RequirementAnalysisService:
                     md_path,
                     platform_type,
                     custom_prompt,
+                    obsidian_modules=obsidian_modules,
                     revision_baseline=revision_baseline,
                 )
             except Exception as exc:
@@ -741,6 +765,7 @@ class RequirementAnalysisService:
                 md_path,
                 platform_type,
                 custom_prompt,
+                obsidian_modules=obsidian_modules,
             )
 
         except Exception as exc:
@@ -836,6 +861,7 @@ class RequirementAnalysisService:
         md_path: Path,
         platform_type: str,
         custom_prompt: str,
+        obsidian_modules: str = "",
         revision_baseline: dict | None = None,
     ) -> None:
         """用已有的 Markdown 内容执行分析 + 审查 + 通知。
@@ -874,7 +900,7 @@ class RequirementAnalysisService:
                 doc_md=doc_md,
                 doc_summary=doc_md[:1500],
                 skill_body=skill_body_override or skill_body,
-                knowledge_context=knowledge_ctx.to_prompt_text(),
+                knowledge_context=ANALYZER_KNOWLEDGE_NOTICE,
                 platform_type=platform_type,
                 custom_prompt=custom_prompt,
                 review_skill_body=review_skill_body,
@@ -889,6 +915,14 @@ class RequirementAnalysisService:
         knowledge_ctx = self.knowbase.build_knowledge_context(
             doc_content=doc_md,
             platform_type=platform_type,
+            user_modules=obsidian_modules,
+        )
+        alog.log(
+            "knowledge_loaded",
+            mode=knowledge_ctx.retrieval_mode,
+            user_modules=knowledge_ctx.user_specified_modules,
+            mentioned_modules=knowledge_ctx.mentioned_modules[:10],
+            notes=len(knowledge_ctx.note_contents),
         )
 
         # ── 步骤 3：加载 SKILL.md ──
@@ -896,10 +930,10 @@ class RequirementAnalysisService:
         skill_body = ""
         if skill:
             skill_body = skill.body
-        # 替换 SKILL.md 中的 {knowledge_context} 占位符（load_skill 直接返回原始内容，
-        # 不执行插值替换，需手动完成）
-        skill_body = skill_body.replace(
-            "{knowledge_context}", knowledge_ctx.to_prompt_text()
+        # Analyzer 严格只分析上传文档：知识库可用于其他阶段，但不得注入需求生成。
+        skill_body = prepare_analyzer_skill(
+            skill_body,
+            knowledge_ctx.to_prompt_text(),
         )
         alog.log("skill_load", skill_name="requirement-analyzer", body_length=len(skill_body))
         alog.save_snapshot("SKILL_used.md", skill_body)
@@ -925,7 +959,7 @@ class RequirementAnalysisService:
         claude_prompt = self._build_analysis_prompt(
             skill_body=skill_body,
             doc_md=doc_md,
-            knowledge_context=knowledge_ctx.to_prompt_text(),
+            knowledge_context=ANALYZER_KNOWLEDGE_NOTICE,
             platform_type=platform_type,
             custom_prompt=custom_prompt,
             revision_baseline=revision_baseline,
@@ -1064,7 +1098,7 @@ class RequirementAnalysisService:
             risk_count=len(analysis_json.get("risks", [])),
         )
 
-        # FR 范围与原文依据校验（仅允许第三章模块 + source_evidence 可匹配）
+        # 动态模块范围与原文依据校验（不依赖固定章节；FR/NFR 均须原文锚定）
         scope_report = validate_analysis_scope(doc_md, analysis_json)
         alog.log(
             "analysis_scope_check",
@@ -1079,6 +1113,9 @@ class RequirementAnalysisService:
                 errors=scope_report.errors[:12],
                 rejected_fr_ids=[
                     fr.get("id") for fr in scope_report.rejected_fr[:12]
+                ],
+                rejected_nfr_ids=[
+                    nfr.get("id") for nfr in scope_report.rejected_nfr[:12]
                 ],
             )
             failure = FailureInfo(
@@ -1104,7 +1141,7 @@ class RequirementAnalysisService:
             scope_report = validate_analysis_scope(doc_md, analysis_json)
             if not scope_report.ok:
                 raise RuntimeError(
-                    "自愈后仍存在越界 FR："
+                    "自愈后仍存在越界或无原文依据的需求："
                     + "; ".join(scope_report.errors[:6])
                 )
 

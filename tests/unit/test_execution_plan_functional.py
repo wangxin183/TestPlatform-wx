@@ -186,7 +186,7 @@ class TestBrowserMatrixExecutorFunctional:
         assert executor.platform_type == "compatibility"
 
         import asyncio
-        result = asyncio.get_event_loop().run_until_complete(executor.health_check())
+        result = asyncio.run(executor.health_check())
         assert isinstance(result, dict)
         assert "connected" in result
         assert "details" in result

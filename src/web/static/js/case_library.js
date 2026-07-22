@@ -8,6 +8,7 @@ var CL = {
   projectId: '',
   dirs: [],
   cases: [],
+  modules: [],
   selectedDirId: '',
   importFile: null
 };
@@ -15,8 +16,30 @@ var CL = {
 document.addEventListener('DOMContentLoaded', function() {
   loadCLProjects();
   loadCLDirectories();
+  loadCLModules();
   setupCLDropzone();
 });
+
+function loadCLModules() {
+  fetch('/api/v1/testcase-generations/modules')
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      if (!data.success) return;
+      CL.modules = data.data || [];
+      var createSelect = document.getElementById('cl-create-module');
+      if (createSelect) createSelect.innerHTML = buildCLModuleOptions('');
+    });
+}
+
+function buildCLModuleOptions(selected) {
+  var html = '<option value="">-- 请选择模块 --</option>';
+  CL.modules.forEach(function(module) {
+    html += '<option value="' + esc(module.name) + '"' +
+      (module.name === selected ? ' selected' : '') + '>' +
+      esc(module.name) + '</option>';
+  });
+  return html;
+}
 
 // ═══════════════════════ Tabs ═══════════════════
 
@@ -49,7 +72,7 @@ function onCLProjectChange() {
   CL.projectId = document.getElementById('cl-project-select').value;
   loadCLDirectories();
   if (!CL.projectId) {
-    document.getElementById('cl-case-list').innerHTML = '<tr><td colspan="6" class="rv-empty">请选择项目或目录查看用例</td></tr>';
+    document.getElementById('cl-case-list').innerHTML = '<tr><td colspan="7" class="rv-empty">请选择项目或目录查看用例</td></tr>';
     return;
   }
   loadCLCases('');
@@ -179,13 +202,14 @@ function loadCLCases(dirId) {
 function renderCLCaseList() {
   var el = document.getElementById('cl-case-list');
   if (CL.cases.length === 0) {
-    el.innerHTML = '<tr><td colspan="6" class="rv-empty">暂无用例</td></tr>';
+    el.innerHTML = '<tr><td colspan="7" class="rv-empty">暂无用例</td></tr>';
     return;
   }
   el.innerHTML = CL.cases.map(function(c) {
     var sourceLabel = c.source === 'import' ? '导入' : (c.source === 'auto' ? '自动' : '手动');
     return '<tr>'
       + '<td><span class="rv-case-link" onclick="viewCLCase(\'' + c.id + '\')">' + esc(c.title) + '</span></td>'
+      + '<td><span class="rv-type-tag">' + esc(c.module || '未映射') + '</span></td>'
       + '<td><span class="rv-type-tag">' + esc(c.test_type || '') + '</span></td>'
       + '<td>' + priorityBadge(c.priority) + '</td>'
       + '<td><span class="rv-badge rv-badge-neutral">' + sourceLabel + '</span></td>'
@@ -260,6 +284,9 @@ function editCLCase(id) {
       // Preconditions
       + '<div><span class="rv-selector-label">前置条件</span>'
         + '<textarea class="rv-textarea" id="cle-precond" rows="2" placeholder="前置条件">' + esc(c.preconditions || '') + '</textarea>'
+      + '</div>'
+      + '<div><span class="rv-selector-label">所属模块 *</span>'
+        + '<select class="rv-select" id="cle-module">' + buildCLModuleOptions(c.module || '') + '</select>'
       + '</div>'
       // Type + Priority row
       + '<div style="display:flex;gap:16px">'
@@ -337,6 +364,7 @@ function saveCLCaseEdit(id) {
   form.append('title', title);
   form.append('description', document.getElementById('cle-desc').value.trim());
   form.append('preconditions', document.getElementById('cle-precond').value.trim());
+  form.append('module', document.getElementById('cle-module').value);
   form.append('test_type', document.getElementById('cle-type').value);
   form.append('priority', document.getElementById('cle-priority').value);
   form.append('directory_id', document.getElementById('cle-dir').value);
@@ -483,6 +511,7 @@ function createCase() {
   form.append('steps', JSON.stringify(steps));
   form.append('test_type', document.getElementById('cl-create-type').value);
   form.append('priority', document.getElementById('cl-create-priority').value);
+  form.append('module', document.getElementById('cl-create-module').value);
   var dirId = document.getElementById('cl-create-dir').value;
   if (dirId) form.append('directory_id', dirId);
 
@@ -576,7 +605,7 @@ function showCLDirModal(title, defaultName, onConfirm) {
 function resetCL() {
   CL.dirs = []; CL.cases = []; CL.selectedDirId = '';
   document.getElementById('cl-dir-tree').innerHTML = '';
-  document.getElementById('cl-case-list').innerHTML = '<tr><td colspan="6" class="rv-empty">请选择项目</td></tr>';
+  document.getElementById('cl-case-list').innerHTML = '<tr><td colspan="7" class="rv-empty">请选择项目</td></tr>';
 }
 
 function showMsg(elId, text, isError) {

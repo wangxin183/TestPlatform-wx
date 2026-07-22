@@ -29,6 +29,8 @@ async def lifespan(app: FastAPI):
     if settings.database.auto_create_tables:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+        from src.utils.schema_patches import apply_schema_patches
+        await apply_schema_patches(engine)
     start_scheduler()
     await load_schedules()
     yield

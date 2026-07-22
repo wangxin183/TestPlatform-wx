@@ -1,0 +1,46 @@
+# execution_runtime 全局配置
+# 被测 App / 设备信息统一在此管理，平台导出 task.json 时读取默认值。
+# 当前目标：Android 模拟器 + 爱奇艺叭嗒 App UI 自动化
+
+target_app:
+  name: "爱奇艺叭嗒"
+  platform: android
+  bundle_id: "com.iqiyi.acg"       # Android appPackage
+  app_activity: ".biz.cartoon.splash.ComicSplashActivity"
+  app_path: null
+
+device:
+  udid: "emulator-5554"
+  device_name: "sdk_gphone64_arm64"
+  platform_version: "16"
+  appium_url: "http://127.0.0.1:4723"
+  automation_name: "UiAutomator2"
+  no_reset: true
+  auto_grant_permissions: true
+  new_command_timeout: 600
+  # iOS 专用（Android 忽略）
+  wda_bundle_id: ""
+  wda_local_port: 8101
+  use_preinstalled_wda: false
+  skip_wda_uninstall: false
+
+run:
+  max_concurrency: 1
+  case_timeout_seconds: 180
+  step_timeout_seconds: 20
+  max_heal_attempts: 2
+  self_heal_enabled: true
+  # StageAgentHarness 三档预算（战役级；navigator 单步 max_calls 另计）
+  heal_budget_setup: 2
+  heal_budget_step: 2
+  heal_budget_case: 2
+  ocr_enabled: true
+  screenshot_each_step: true
+  dump_source_each_step: true
+
+redact_keys:
+  - password
+  - pwd
+  - captcha
+  - verify_code
+  - phone

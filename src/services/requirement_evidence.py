@@ -6,23 +6,31 @@ import re
 from dataclasses import dataclass, field
 
 
-_CH3_MODULE_RE = re.compile(
-    r"^###\s+3\.(\d+)\s+(.+?)模块\s*$",
-    re.MULTILINE,
+_HEADING_RE = re.compile(r"^#{2,6}\s+(.+?)\s*$", re.MULTILINE)
+_HEADING_NUMBER_RE = re.compile(
+    r"^(?:第?[一二三四五六七八九十百]+[、.．]\s*|\d+(?:\.\d+)*[、.．]?\s*)"
 )
 _EVIDENCE_QUOTE_RE = re.compile(
     r"原文摘录[：:]\s*(.+)$",
 )
 
 
-def extract_chapter3_modules(doc_md: str) -> list[str]:
-    """从第三章标题提取允许的功能模块名（不含「模块」后缀）。"""
+def extract_requirement_modules(doc_md: str) -> list[str]:
+    """从全文任意层级模块标题提取模块名，不依赖固定章节编号。"""
     modules: list[str] = []
-    for _num, name in _CH3_MODULE_RE.findall(doc_md):
-        name = name.strip()
+    for raw_heading in _HEADING_RE.findall(doc_md):
+        heading = _HEADING_NUMBER_RE.sub("", raw_heading.strip())
+        if not heading.endswith("模块"):
+            continue
+        name = heading[: -len("模块")].strip()
         if name and name not in modules:
             modules.append(name)
     return modules
+
+
+def extract_chapter3_modules(doc_md: str) -> list[str]:
+    """兼容旧调用；现已改为动态解析全文模块标题。"""
+    return extract_requirement_modules(doc_md)
 
 
 def _normalize_module(name: str) -> str:
@@ -68,12 +76,14 @@ class AnalysisScopeReport:
     ok: bool
     allowed_modules: list[str] = field(default_factory=list)
     rejected_fr: list[dict] = field(default_factory=list)
+    rejected_nfr: list[dict] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
     def summary(self) -> str:
         return (
             f"允许模块={len(self.allowed_modules)}, "
             f"驳回FR={len(self.rejected_fr)}, "
+            f"驳回NFR={len(self.rejected_nfr)}, "
             f"错误={len(self.errors)}"
         )
 
@@ -83,26 +93,23 @@ def validate_analysis_scope(
     analysis_json: dict,
 ) -> AnalysisScopeReport:
     """校验 FR 模块范围 + 原文依据，剔除越界/无锚点项。"""
-    allowed = extract_chapter3_modules(doc_md)
+    allowed = extract_requirement_modules(doc_md)
     report = AnalysisScopeReport(ok=True, allowed_modules=allowed)
     fr_list = analysis_json.get("functional_requirements") or []
-
-    if not allowed:
-        report.ok = False
-        report.errors.append(
-            "未在文档第三章解析到「### 3.x xxx模块」标题，无法界定 FR 范围"
-        )
-        return report
 
     for fr in fr_list:
         if not isinstance(fr, dict):
             continue
         fr_id = fr.get("id", "?")
         module = fr.get("module", "")
-        if not module_matches_fr(module, allowed):
+        if not str(module or "").strip():
+            report.rejected_fr.append(fr)
+            report.errors.append(f"{fr_id} 缺少 module")
+            continue
+        if allowed and not module_matches_fr(module, allowed):
             report.rejected_fr.append(fr)
             report.errors.append(
-                f"{fr_id} 模块「{module}」不在文档第三章允许范围：{allowed}"
+                f"{fr_id} 模块「{module}」不在文档动态解析范围：{allowed}"
             )
             continue
         ok, reason = evidence_quotes_in_doc(fr, doc_md)
@@ -110,7 +117,16 @@ def validate_analysis_scope(
             report.rejected_fr.append(fr)
             report.errors.append(f"{fr_id} {reason}")
 
-    if report.rejected_fr:
+    for nfr in analysis_json.get("non_functional_requirements") or []:
+        if not isinstance(nfr, dict):
+            continue
+        nfr_id = nfr.get("id", "?")
+        ok, reason = evidence_quotes_in_doc(nfr, doc_md)
+        if not ok:
+            report.rejected_nfr.append(nfr)
+            report.errors.append(f"{nfr_id} {reason}")
+
+    if report.rejected_fr or report.rejected_nfr:
         report.ok = False
     return report
 
@@ -125,11 +141,17 @@ def filter_analysis_to_scope(
         return analysis_json, report
 
     rejected_ids = {fr.get("id") for fr in report.rejected_fr}
+    rejected_nfr_ids = {nfr.get("id") for nfr in report.rejected_nfr}
     out = dict(analysis_json)
     out["functional_requirements"] = [
         fr
         for fr in (analysis_json.get("functional_requirements") or [])
         if isinstance(fr, dict) and fr.get("id") not in rejected_ids
+    ]
+    out["non_functional_requirements"] = [
+        nfr
+        for nfr in (analysis_json.get("non_functional_requirements") or [])
+        if isinstance(nfr, dict) and nfr.get("id") not in rejected_nfr_ids
     ]
     notes = out.get("analysis_notes")
     if not isinstance(notes, dict):
@@ -138,9 +160,14 @@ def filter_analysis_to_scope(
     missing = notes.get("missing_aspects")
     if not isinstance(missing, list):
         missing = []
-    missing.append(
-        "以下 FR 因模块越界或缺少可验证原文依据被平台剔除："
-        + ", ".join(sorted(rejected_ids - {None}))
-    )
+    removed = [
+        *sorted(rejected_ids - {None}),
+        *sorted(rejected_nfr_ids - {None}),
+    ]
+    if removed:
+        missing.append(
+            "以下需求因模块越界或缺少可验证原文依据被平台剔除："
+            + ", ".join(removed)
+        )
     notes["missing_aspects"] = missing
     return out, report

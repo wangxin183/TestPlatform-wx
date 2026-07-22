@@ -33,11 +33,13 @@ async def llm_call(request: LLMRequest, max_retries: Optional[int] = None) -> LL
     for attempt in range(max_retries + 1):
         try:
             provider, model = await llm_router.route(request)
+            if not request.model:
+                request.model = model
 
             logger.debug(
                 "llm_call_attempt",
                 task_tag=request.task_tag,
-                model=model,
+                model=request.model or model,
                 attempt=attempt + 1,
                 pipeline_id=request.pipeline_id,
                 stage_name=request.stage_name,

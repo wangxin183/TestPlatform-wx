@@ -34,11 +34,32 @@ providers:
         cost_per_1k_output: 0.01500
         capabilities: ["high_complexity", "vision", "large_context", "long_output"]
 
+  # 用户百炼/MaaS 工作空间（安全检测 Vision）
+  dashscope_maas:
+    api_base: "https://llm-sxdmm4m4ac9z11on.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+    api_key_env: "DASHSCOPE_API_KEY"
+    models:
+      - name: "qwen3-vl-plus"
+        cost_per_1k_input: 0.0
+        cost_per_1k_output: 0.0
+        capabilities: ["high_complexity", "json_mode", "vision", "large_context"]
+      - name: "qwen3.6-plus"
+        cost_per_1k_input: 0.0
+        cost_per_1k_output: 0.0
+        capabilities: ["high_complexity", "json_mode", "vision", "large_context"]
+
 router:
   default_provider: "deepseek"
   default_model: "deepseek-v4-pro"
 
   rules:
+    - id: "execution_security_check_vision"
+      priority: 0
+      description: "Login security captcha uses MaaS Qwen vision"
+      conditions:
+        - when: {task_tag: ["execution.security_check"]}
+          route: {provider: "dashscope_maas", model: "qwen3-vl-plus"}
+
     - id: "task_complexity_routing"
       priority: 1
       description: "Route based on task complexity tag"

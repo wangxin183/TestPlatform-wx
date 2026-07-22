@@ -129,6 +129,33 @@ class KnowledgeBaseSettings(BaseSettings):
     keyword_fallback: bool = True
 
 
+class TestCaseGenerationSettings(BaseSettings):
+    """独立用例生成模块：组批与并发（降本提速）。"""
+
+    max_tps_per_batch: int = 12
+    target_input_tokens: int = 7000
+    max_concurrency: int = 3
+    fixed_overhead_tokens: int = 800
+
+
+class RequirementAnalysisSettings(BaseSettings):
+    """独立需求分析：测试点分批与上下文预算。"""
+
+    fr_tp_batch_size: int = 4
+    nfr_tp_batch_size: int = 6
+    model_context_window: int = 180000
+    output_token_budget: int = 20000
+    safety_margin: int = 5000
+
+    @property
+    def max_input_tokens(self) -> int:
+        return (
+            self.model_context_window
+            - self.output_token_budget
+            - self.safety_margin
+        )
+
+
 class Settings:
     """Aggregated settings from YAML config files.
 
@@ -151,6 +178,12 @@ class Settings:
         self.security = SecuritySettings(**settings_yaml.get("security", {}))
         self.agent_runtime = AgentRuntimeSettings(**settings_yaml.get("agent_runtime", {}))
         self.knowledge_base = KnowledgeBaseSettings(**settings_yaml.get("knowledge_base", {}))
+        self.testcase_generation = TestCaseGenerationSettings(
+            **settings_yaml.get("testcase_generation", {})
+        )
+        self.requirement_analysis = RequirementAnalysisSettings(
+            **settings_yaml.get("requirement_analysis", {})
+        )
         self.llm_providers_config = _load_yaml("llm_providers.yaml")
         self.platforms_config = _load_yaml("platforms.yaml")
 

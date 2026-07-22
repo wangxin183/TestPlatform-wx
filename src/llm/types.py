@@ -35,3 +35,7 @@ class LLMRequest:
     stage_name: str | None = None
     budget_remaining_pct: float = 100.0
     messages: list[dict] | None = None  # optional: raw message list override
+    # 多模态：PNG/JPEG 原始 bytes；由支持 vision 的 Provider 组装 image_url
+    images: list[bytes] | None = None
+    # 覆盖路由选出的模型名（Provider 优先使用）
+    model: str | None = None

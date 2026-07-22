@@ -73,6 +73,25 @@ knowledge_base:
   keyword_fallback: true
 
 # ────────────────────────────────────────────────────────────────
+# 独立用例生成（UI 测试点 → 用例）：组批与并发
+# ────────────────────────────────────────────────────────────────
+testcase_generation:
+  max_tps_per_batch: 12          # 单批 TP 硬上限（防输出截断）
+  target_input_tokens: 7000      # 单批输入 token 预算（含精简指令）
+  max_concurrency: 3             # 批次数有限并发
+  fixed_overhead_tokens: 800     # 精简指令等固定开销估算
+
+# ────────────────────────────────────────────────────────────────
+# 独立需求分析：测试点分批与上下文窗口预算
+# ────────────────────────────────────────────────────────────────
+requirement_analysis:
+  fr_tp_batch_size: 4            # FR → TP 单批条数
+  nfr_tp_batch_size: 6           # NFR → TP 单批条数
+  model_context_window: 180000   # 上下文上限（约 90% of 200K）
+  output_token_budget: 20000     # 预留给模型输出
+  safety_margin: 5000            # 安全余量
+
+# ────────────────────────────────────────────────────────────────
 # 统一智能体运行时（面向软件测试全流程）
 #   业务代码只面向 role（两段式命名 <domain>.<role>），
 #   智能体选型与 fallback 顺序完全由本段配置驱动。
@@ -98,17 +117,41 @@ agent_runtime:
       fallbacks: [claude_code, codex]
       default_timeout_seconds: 600
 
+    # 独立用例生成模块（UI 测试点 → 测试用例）
+    testcase.generator:
+      primary: cursor
+      fallbacks: [claude_code, codex]
+      default_timeout_seconds: 600
+    # 编译结果为 failed / agent_required 时即时诊断（原因/建议/需补充）
+    testcase.compile_advisor:
+      primary: cursor
+      fallbacks: [claude_code, codex]
+      default_timeout_seconds: 90
+
     # 通用角色（跨阶段复用，自愈流程使用）
     utility.diagnoser:
       primary: cursor
       fallbacks: [claude_code, codex]
       default_timeout_seconds: 180
 
+    # 独立测试执行运行时（execution_runtime）
+    # 编译层：NL 用例 → 可执行 DSL
+    execution.compiler:
+      primary: cursor
+      fallbacks: [claude_code, codex]
+      default_timeout_seconds: 300
+    # 战役级自愈诊断（StageAgentHarness / HealLoop）
+    execution.diagnoser:
+      primary: cursor
+      fallbacks: [claude_code, codex]
+      default_timeout_seconds: 120
+    # DSL 缺失或定位漂移时：基于页面观察选择单个白名单 Appium 工具
+    execution.navigator:
+      primary: cursor
+      fallbacks: [claude_code, codex]
+      default_timeout_seconds: 120
+
     # 未来阶段（本次不实现，取消注释即接入）
-    # testcase.generator:
-    #   primary: claude_code
-    #   fallbacks: [cursor, codex]
-    #   default_timeout_seconds: 600
     # testcase.reviewer:
     #   primary: codex
     #   fallbacks: [cursor, claude_code]

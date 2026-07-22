@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+{% block title %}用例生成 - TestPlatform{% endblock %}
+
+{% block head_extra %}
+<style>
+.tcg-layout { display: grid; grid-template-columns: 380px 1fr; gap: 20px; align-items: start; }
+@media (max-width: 1100px) { .tcg-layout { grid-template-columns: 1fr; } }
+.tcg-tp-table-wrap { max-height: 320px; overflow: auto; margin-top: 8px; }
+.tcg-history-item {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 12px; border-bottom: 1px solid var(--rv-border);
+  cursor: pointer; font-size: 13px;
+}
+.tcg-history-item:hover { background: #fafaf9; }
+.tcg-history-item.active { background: rgba(245,158,11,0.08); }
+.tcg-stats {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px;
+}
+.tcg-stat {
+  background: #fff; border: 1px solid var(--rv-border); border-radius: var(--rv-radius);
+  padding: 12px 14px; text-align: center;
+}
+.tcg-stat-num { font-size: 22px; font-weight: 700; font-family: var(--rv-mono); }
+.tcg-stat-label { font-size: 12px; color: var(--rv-text-muted); margin-top: 4px; }
+.tcg-tabs { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.tcg-tab {
+  border: 1px solid var(--rv-border); background: #fff; border-radius: 999px;
+  padding: 6px 14px; font-size: 13px; cursor: pointer; color: var(--rv-text-secondary);
+}
+.tcg-tab.active {
+  background: var(--rv-accent); border-color: var(--rv-accent); color: #fff; font-weight: 600;
+}
+.tcg-log-list { display: flex; flex-direction: column; gap: 8px; max-height: 560px; overflow: auto; }
+.tcg-log-entry {
+  border: 1px solid var(--rv-border); border-radius: var(--rv-radius-sm);
+  padding: 10px 12px; background: #fafaf9; font-size: 13px; line-height: 1.5;
+}
+.tcg-log-time { color: var(--rv-text-muted); font-family: var(--rv-mono); display: block; margin-bottom: 4px; font-size: 12px; }
+.tcg-log-msg { color: #1c1917; white-space: pre-wrap; word-break: break-word; }
+.tcg-log-step { font-weight: 600; }
+.tcg-log-extra { display: block; margin-top: 4px; color: var(--rv-text-muted); word-break: break-all; }
+.tcg-steps { margin: 0; padding-left: 18px; }
+.tcg-steps li { margin-bottom: 8px; }
+.tcg-modal-body { max-height: 60vh; overflow: auto; }
+.tcg-compile-diag {
+  margin: 0 0 14px; padding: 12px 14px; border: 1px solid var(--rv-danger);
+  border-radius: var(--rv-radius); background: #fffbeb;
+}
+.tcg-compile-diag-hd { font-size: 13px; font-weight: 700; color: #1c1917; margin-bottom: 6px; }
+.tcg-compile-diag-intro { font-size: 12px; color: #57534e; margin: 0 0 8px; line-height: 1.5; }
+.tcg-compile-diag-list { margin: 0; padding-left: 18px; }
+.tcg-compile-diag-list li { margin-bottom: 10px; font-size: 12px; line-height: 1.55; color: #1c1917; }
+.tcg-diag-reason { margin-bottom: 2px; }
+.tcg-diag-suggest, .tcg-diag-need { color: #57534e; }
+.tcg-diag-suggest { margin-top: 2px; }
+.tcg-diag-need { margin-top: 2px; }
+.rv-compile-errors { margin: 0; padding-left: 20px; color: var(--rv-danger); font-size: 12px; }
+.rv-compile-errors li { margin-bottom: 6px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="rv-page">
+  <header class="rv-header">
+    <div class="rv-header-left">
+      <div class="rv-header-icon-wrap">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+      </div>
+      <div>
+        <h1 class="rv-header-title">用例生成</h1>
+        <p class="rv-header-sub">UI Test Case Generation from Requirement Analysis</p>
+      </div>
+    </div>
+  </header>
+
+  <div class="rv-page-body tcg-layout">
+    <div class="tcg-left">
+      <div class="rv-card" id="create-panel">
+        <div class="rv-card-hd"><h3>从需求分析生成</h3></div>
+        <div class="rv-card-body">
+          <label class="opt-label">
+            <span>来源分析任务</span>
+            <select id="source-ra" class="rv-select"></select>
+          </label>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;">
+            <span style="font-size:13px;color:var(--rv-text-secondary)">UI 测试点</span>
+            <div>
+              <button type="button" class="rv-btn rv-btn-ghost rv-btn-xs" id="btn-select-all">全选</button>
+              <button type="button" class="rv-btn rv-btn-ghost rv-btn-xs" id="btn-select-none">清空</button>
+            </div>
+          </div>
+          <div class="rv-table-wrap tcg-tp-table-wrap">
+            <table class="rv-table" id="tp-table">
+              <thead>
+                <tr>
+                  <th class="rv-th-check"></th>
+                  <th>ID</th>
+                  <th>场景</th>
+                </tr>
+              </thead>
+              <tbody id="tp-tbody">
+                <tr><td colspan="3" class="rv-empty">请选择来源任务</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <label class="opt-label" style="margin-top:12px;display:block;">
+            <span>目标平台</span>
+            <select id="platform-type" class="rv-select">
+              <option value="">沿用来源 / 通用</option>
+              <option value="web">Web</option>
+              <option value="ios">iOS</option>
+              <option value="android">Android</option>
+              <option value="h5">H5</option>
+              <option value="miniprogram">小程序</option>
+            </select>
+          </label>
+          <label class="opt-label" style="margin-top:12px;display:block;">
+            <span>自定义要求（可选）</span>
+            <textarea id="custom-prompt" class="rv-textarea" rows="2" placeholder="如：步骤写清控件名称，覆盖弱网提示..."></textarea>
+          </label>
+          <button class="rv-btn rv-btn-accent rv-btn-block" id="start-btn" style="margin-top:16px;" disabled>
+            开始生成 UI 用例
+          </button>
+        </div>
+      </div>
+
+      <div class="rv-card" id="progress-panel" style="display:none;margin-top:16px;">
+        <div class="rv-card-body">
+          <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:8px;">
+            <span id="progress-step">准备中...</span>
+            <span id="progress-pct">0%</span>
+          </div>
+          <div class="progress-bar" style="height:8px;background:#f5f5f4;border-radius:999px;overflow:hidden;">
+            <div id="progress-fill" style="height:100%;width:0%;background:var(--rv-accent);transition:width .3s;"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="rv-card" style="margin-top:16px;">
+        <div class="rv-card-hd"><h3>历史任务</h3></div>
+        <div class="rv-card-body" id="history-list" style="padding:0;">
+          <p class="rv-text-muted" style="padding:16px;">加载中...</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="tcg-right">
+      <div class="rv-card" id="result-panel">
+        <div class="rv-card-hd"><h3>生成结果</h3></div>
+        <div class="rv-card-body" id="result-body">
+          <div class="rv-empty">
+            <p>选择来源测试点并开始生成，或从左侧打开历史任务</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 用例详情弹窗 -->
+<div class="rv-modal-overlay" id="case-modal" style="display:none;">
+  <div class="rv-modal-glass" onclick="TCG.closeCaseModal()"></div>
+  <div class="rv-modal" style="max-width:720px;">
+    <div class="rv-modal-header">
+      <div>
+        <div class="rv-modal-kicker">用例详情</div>
+        <h3 class="rv-modal-title" id="case-modal-title">-</h3>
+      </div>
+      <button type="button" class="rv-btn rv-btn-ghost rv-btn-icon" onclick="TCG.closeCaseModal()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="rv-modal-body tcg-modal-body" id="case-modal-body"></div>
+    <div class="rv-modal-footer">
+      <div class="rv-modal-footer-left">
+        <button type="button" class="rv-btn rv-btn-outline" id="btn-save-case">保存并编译</button>
+        <button type="button" class="rv-btn rv-btn-ghost" id="btn-recompile-case">重新编译</button>
+      </div>
+      <div class="rv-modal-footer-right">
+        <button type="button" class="rv-btn rv-btn-danger" id="btn-reject-case">驳回</button>
+        <button type="button" class="rv-btn rv-btn-accent" id="btn-approve-case">通过</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/testcase_generation.js?v=6"></script>
+{% endblock %}

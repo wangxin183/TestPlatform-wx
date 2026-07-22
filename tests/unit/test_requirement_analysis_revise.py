@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from src.services.requirement_analysis_service import RequirementAnalysisService
+from src.services.requirement_analysis_service import (
+    RequirementAnalysisService,
+    prepare_analyzer_skill,
+)
 
 
 def test_build_analysis_prompt_includes_revision_baseline() -> None:
@@ -41,3 +44,13 @@ def test_build_testpoint_prompt_contains_fr_json() -> None:
     assert "定稿需求拆解" in prompt
     assert "FR-001" in prompt
     assert "test_points" in prompt
+
+
+def test_prepare_analyzer_skill_never_injects_knowledge_notes() -> None:
+    skill = "# analyzer\n{knowledge_context}\n## 输入"
+    prepared = prepare_analyzer_skill(
+        skill,
+        "知识库参考：会员支付成功后自动续费",
+    )
+    assert "会员支付成功后自动续费" not in prepared
+    assert "本阶段不向需求分析智能体提供知识库内容" in prepared

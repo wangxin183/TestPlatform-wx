@@ -13,6 +13,7 @@ from src.llm.base import AbstractLLMProvider
 from src.llm.providers.deepseek import DeepSeekProvider
 from src.llm.providers.openai import OpenAIProvider
 from src.llm.providers.anthropic import AnthropicProvider
+from src.llm.providers.dashscope_maas import DashScopeMaaSProvider
 from src.llm.types import LLMRequest
 from src.utils.logging_config import get_logger
 
@@ -23,6 +24,7 @@ PROVIDER_REGISTRY: dict[str, type[AbstractLLMProvider]] = {
     "deepseek": DeepSeekProvider,
     "openai": OpenAIProvider,
     "anthropic": AnthropicProvider,
+    "dashscope_maas": DashScopeMaaSProvider,
 }
 
 

@@ -1,65 +1,11 @@
 {
   "version": 1,
   "skills": {
-    "brainstorming": {
-      "source": "https://atomgit.com/GitHub_Trending/su/superpowers",
-      "sourceType": "git",
-      "skillPath": "skills/brainstorming/SKILL.md",
-      "computedHash": "bba47904a7f6bbee3bf8a107ebbe84e65d392be683bbb898ded736b29e415f90"
-    },
-    "dispatching-parallel-agents": {
-      "source": "https://atomgit.com/GitHub_Trending/su/superpowers",
-      "sourceType": "git",
-      "skillPath": "skills/dispatching-parallel-agents/SKILL.md",
-      "computedHash": "76806091c7f923ba2596546b19cccd98a08e57a68745df77c3a7b998fe838e2b"
-    },
-    "executing-plans": {
-      "source": "https://atomgit.com/GitHub_Trending/su/superpowers",
-      "sourceType": "git",
-      "skillPath": "skills/executing-plans/SKILL.md",
-      "computedHash": "e2102f11631433939f162d383d769f8257d859d6639e0e14969cda3ef0a95eca"
-    },
-    "finishing-a-development-branch": {
-      "source": "https://atomgit.com/GitHub_Trending/su/superpowers",
-      "sourceType": "git",
-      "skillPath": "skills/finishing-a-development-branch/SKILL.md",
-      "computedHash": "5c8d4b59aedb14c94e2f5d787a3265e858e8f53d4ceffe7ff1c15878a52b0e91"
-    },
     "frontend-design": {
       "source": "anthropics/skills",
       "sourceType": "github",
       "skillPath": "skills/frontend-design/SKILL.md",
       "computedHash": "063a0e6448123cd359ad0044cc46b0e490cc7964d45ef4bb9fd842bd2ffbca67"
-    },
-    "receiving-code-review": {
-      "source": "https://atomgit.com/GitHub_Trending/su/superpowers",
-      "sourceType": "git",
-      "skillPath": "skills/receiving-code-review/SKILL.md",
-      "computedHash": "c9382e92b8f32363566068ecfed19d3b2651eaf40d3942b24840f839dedfc406"
-    },
-    "requesting-code-review": {
-      "source": "https://atomgit.com/GitHub_Trending/su/superpowers",
-      "sourceType": "git",
-      "skillPath": "skills/requesting-code-review/SKILL.md",
-      "computedHash": "5a3a44a3667800e2dc836829c6b92fada51e6dc58ac144ec05fe59f47d6bcd84"
-    },
-    "subagent-driven-development": {
-      "source": "https://atomgit.com/GitHub_Trending/su/superpowers",
-      "sourceType": "git",
-      "skillPath": "skills/subagent-driven-development/SKILL.md",
-      "computedHash": "905a2b9be59b734dbe166525ad31dcaaf712a75926135adee1f554557aba5744"
-    },
-    "systematic-debugging": {
-      "source": "https://atomgit.com/GitHub_Trending/su/superpowers",
-      "sourceType": "git",
-      "skillPath": "skills/systematic-debugging/SKILL.md",
-      "computedHash": "4999cb851360485eca5074e727bbdd62ef20549c5d5b01216fcbf5831badb473"
-    },
-    "test-driven-development": {
-      "source": "https://atomgit.com/GitHub_Trending/su/superpowers",
-      "sourceType": "git",
-      "skillPath": "skills/test-driven-development/SKILL.md",
-      "computedHash": "7dee67b4af6bdccc7a914ca34533184d64592d0f5b23aeae631538168db14994"
     },
     "ui-ux-pro-max": {
       "source": "nextlevelbuilder/ui-ux-pro-max-skill",
@@ -67,41 +13,11 @@
       "skillPath": ".claude/skills/ui-ux-pro-max/SKILL.md",
       "computedHash": "0a413bf988d06481f69bb81df2070741c3ba12dd9f1be2706d57f259c905992d"
     },
-    "using-git-worktrees": {
-      "source": "https://atomgit.com/GitHub_Trending/su/superpowers",
-      "sourceType": "git",
-      "skillPath": "skills/using-git-worktrees/SKILL.md",
-      "computedHash": "085a45ee3de432bdb2768011591d9a882cb6c759e2317f379226451c5618fe8e"
-    },
-    "using-superpowers": {
-      "source": "https://atomgit.com/GitHub_Trending/su/superpowers",
-      "sourceType": "git",
-      "skillPath": "skills/using-superpowers/SKILL.md",
-      "computedHash": "316e29381219adf0cac62190c67aeabf427d6e6e5f2735541d502b3d339be7aa"
-    },
-    "verification-before-completion": {
-      "source": "https://atomgit.com/GitHub_Trending/su/superpowers",
-      "sourceType": "git",
-      "skillPath": "skills/verification-before-completion/SKILL.md",
-      "computedHash": "ea52d15aabaf72bc6b558efe2c126f161b53961090ddcd712000273bfe8c7b6c"
-    },
     "webapp-testing": {
       "source": "anthropics/skills",
       "sourceType": "github",
       "skillPath": "skills/webapp-testing/SKILL.md",
       "computedHash": "ad5b1fc52807e9afa4635e59218a026b164dc58b6c3f41b0f7c644dcd6ccf572"
-    },
-    "writing-plans": {
-      "source": "https://atomgit.com/GitHub_Trending/su/superpowers",
-      "sourceType": "git",
-      "skillPath": "skills/writing-plans/SKILL.md",
-      "computedHash": "4fd4627d2c02367879c0307d7249270bed633317ff9be82e926a6d57bf5d331b"
-    },
-    "writing-skills": {
-      "source": "https://atomgit.com/GitHub_Trending/su/superpowers",
-      "sourceType": "git",
-      "skillPath": "skills/writing-skills/SKILL.md",
-      "computedHash": "38ba648975ae6ba512d6695676f146163db61a496b867f716f4bdfb0ee3aca3e"
     }
   }
 }

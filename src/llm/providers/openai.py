@@ -72,6 +72,8 @@ class OpenAIProvider(AbstractLLMProvider):
             return False
 
     def _select_model(self, request: LLMRequest) -> str:
+        if request.model:
+            return request.model
         if request.complexity == "high":
             return "gpt-4o"
         return self._default_model

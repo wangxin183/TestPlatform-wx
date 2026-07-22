@@ -87,6 +87,8 @@
           <textarea class="rv-input" id="cl-create-desc" rows="2" placeholder="用例描述"></textarea></div>
         <div class="rv-selector-item"><span class="rv-selector-label">前置条件</span>
           <textarea class="rv-input" id="cl-create-precond" rows="2" placeholder="前置条件"></textarea></div>
+        <div class="rv-selector-item"><span class="rv-selector-label">所属模块 *</span>
+          <select class="rv-select" id="cl-create-module"><option value="">-- 请选择模块 --</option></select></div>
         <div style="display:flex;gap:12px;margin:8px 0">
           <div class="rv-selector-item"><span class="rv-selector-label">测试类型</span>
             <select class="rv-select" id="cl-create-type"><option value="ui">UI</option><option value="api">API</option><option value="performance">性能</option><option value="security">安全</option><option value="compatibility">兼容</option></select></div>
@@ -129,11 +131,11 @@
         <div class="rv-table-wrap rv-card">
           <table class="rv-table rv-table--nosticky">
             <thead><tr>
-              <th>用例标题</th><th class="rv-th-tag">类型</th><th class="rv-th-tag">优先级</th>
+              <th>用例标题</th><th class="rv-th-tag">模块</th><th class="rv-th-tag">类型</th><th class="rv-th-tag">优先级</th>
               <th class="rv-th-tag">来源</th><th class="rv-th-num">步骤</th><th class="rv-th-act">操作</th>
             </tr></thead>
             <tbody id="cl-case-list">
-              <tr><td colspan="6" class="rv-empty">请选择项目查看用例</td></tr>
+              <tr><td colspan="7" class="rv-empty">请选择项目查看用例</td></tr>
             </tbody>
           </table>
         </div>
@@ -143,5 +145,5 @@
 </div>
 {% endblock %}
 {% block scripts %}
-<script src="/static/js/case_library.js?v=1"></script>
+<script src="/static/js/case_library.js?v=2"></script>
 {% endblock %}

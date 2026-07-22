@@ -7,6 +7,8 @@ Code / Codex / Cursor 或未来任何一种智能体。
 - 模块位置：[`src/agent_runtime/`](../src/agent_runtime/)
 - 配置入口：`config/settings.yaml` 的 `agent_runtime:` 段
 - 单例引用：`from src.agent_runtime import agent_runtime, AgentTask`
+- **StageAgentHarness / 自愈环**：[`src/services/heal_loop.py`](../src/services/heal_loop.py)，方案见
+  [`docs/superpowers/plans/2026-07-22-agent-engineering-self-heal.md`](superpowers/plans/2026-07-22-agent-engineering-self-heal.md)
 
 ---
 
@@ -17,10 +19,9 @@ Code / Codex / Cursor 或未来任何一种智能体。
 3. **Role 命名统一使用两段式 `<domain>.<role>`**，方便按测试阶段分组：
    - `requirement.analyzer` / `requirement.reviewer`
    - `testcase.generator` / `testcase.reviewer`
-   - `execution.planner`
+   - `execution.compiler` / `execution.navigator` / `execution.diagnoser`
    - `defect.analyzer`
-   - `regression.selector`
-   - `utility.diagnoser`（跨阶段通用的自愈诊断角色）
+   - `utility.diagnoser`（跨阶段通用的输出/质量自愈诊断角色）
 
 ---
 

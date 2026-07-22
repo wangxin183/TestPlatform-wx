@@ -6,6 +6,7 @@ from pathlib import Path
 
 from src.services.requirement_evidence import (
     extract_chapter3_modules,
+    extract_requirement_modules,
     validate_analysis_scope,
 )
 from src.utils.document_converter import convert_to_markdown
@@ -62,3 +63,86 @@ def test_scope_rejects_fr_module_not_in_chapter3():
     report = validate_analysis_scope(doc, analysis)
     assert report.ok is False
     assert any("FR-002" in e for e in report.errors)
+
+
+def test_scope_accepts_modules_from_any_numbered_chapter():
+    doc = """## 二、核心功能详细需求
+### 2.2 漫画阅读器模块
+## 2.2.2 详细功能要求
+漫画阅读器新增开通会员条
+漫画阅读器新增追更按钮
+"""
+    analysis = {
+        "functional_requirements": [
+            {
+                "id": "FR-001",
+                "module": "漫画阅读器",
+                "source_evidence": ["原文摘录：漫画阅读器新增开通会员条"],
+            }
+        ]
+    }
+    assert extract_requirement_modules(doc) == ["漫画阅读器"]
+    report = validate_analysis_scope(doc, analysis)
+    assert report.ok is True
+
+
+def test_unstructured_document_uses_exact_evidence_instead_of_failing_scope():
+    doc = """# 小版本需求
+用户点击追更按钮后加入追更列表。
+"""
+    analysis = {
+        "functional_requirements": [
+            {
+                "id": "FR-001",
+                "module": "追更",
+                "source_evidence": ["原文摘录：用户点击追更按钮后加入追更列表。"],
+            }
+        ]
+    }
+    report = validate_analysis_scope(doc, analysis)
+    assert report.ok is True
+    assert report.allowed_modules == []
+
+
+def test_unstructured_document_rejects_knowledge_only_fr():
+    doc = "# 小版本需求\n新增追更按钮。"
+    analysis = {
+        "functional_requirements": [
+            {
+                "id": "FR-001",
+                "module": "会员",
+                "source_evidence": ["原文摘录：会员支付成功后自动续费"],
+            }
+        ]
+    }
+    report = validate_analysis_scope(doc, analysis)
+    assert report.ok is False
+    assert any("FR-001" in error and "原文" in error for error in report.errors)
+
+
+def test_nfr_without_document_evidence_is_rejected():
+    doc = "# 功能需求\n新增作品简介。"
+    analysis = {
+        "functional_requirements": [],
+        "non_functional_requirements": [
+            {
+                "id": "NFR-001",
+                "category": "performance",
+                "description": "页面 P95 小于 500ms",
+                "source_evidence": ["知识库标准：P95 小于 500ms"],
+            }
+        ],
+    }
+    report = validate_analysis_scope(doc, analysis)
+    assert report.ok is False
+    assert any("NFR-001" in error for error in report.errors)
+
+
+def test_requirement_analyzer_skill_is_dynamic_and_document_only():
+    skill = Path(
+        "/Users/xiguawang/TestPlatform-wx/.agents/skills/"
+        "requirement-analyzer/SKILL.md"
+    ).read_text(encoding="utf-8")
+    assert "全文动态识别" in skill
+    assert "知识库内容不得进入 FR/NFR" in skill
+    assert "只能从 **「三、核心功能详细需求" not in skill

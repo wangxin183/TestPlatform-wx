@@ -403,7 +403,16 @@
   function renderTPList(items) {
     if (!items.length) return '<p class="rv-text-muted">暂无测试点</p>';
 
+    const analysisId = (state.currentData && state.currentData.analysis_id) || '';
+    const uiCount = items.filter(function (tp) {
+      return String(tp.test_type || '').toLowerCase() === 'ui';
+    }).length;
     let html = '';
+    if (analysisId && uiCount > 0) {
+      html += '<div style="margin-bottom:12px;">' +
+        '<a class="rv-btn rv-btn-accent rv-btn-sm" href="/testcase-generation?analysis_id=' +
+        encodeURIComponent(analysisId) + '">用 UI 测试点生成用例 (' + uiCount + ')</a></div>';
+    }
     for (const tp of items) {
       const testTypeCls = 'badge-' + (tp.test_type || 'ui');
       html += `

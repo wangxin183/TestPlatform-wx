@@ -1,20 +1,18 @@
-"""需求分析专用日志 — 记录分析全流程的每一步操作。
-
-每条分析任务一个独立的 analysis.log 文件（JSONL 格式），
-用于问题排查、性能分析和 Skill 进化数据源。
+"""任务逐步操作日志 — JSONL 格式，支持需求分析 / 用例生成等解耦模块。
 
 Usage:
-    from src.utils.analysis_logger import AnalysisLogger
+    from src.utils.analysis_logger import AnalysisLogger, GenerationLogger
 
     alog = AnalysisLogger(analysis_id="RA-0001")
     alog.log("ingest_start", file_type="docx")
-    alog.log("ingest_done", char_count=12345)
+
+    glog = GenerationLogger(generation_id="TCG-0001")
+    glog.log("task_created", analysis_id="RA-0001")
 """
 
 from __future__ import annotations
 
 import json
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -22,33 +20,42 @@ from src.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-STORAGE_BASE = Path("storage/requirement_analyses")
+RA_STORAGE_BASE = Path("storage/requirement_analyses")
+TCG_STORAGE_BASE = Path("storage/testcase_generations")
+EXE_STORAGE_BASE = Path("storage/execution_runs")
+
+# 向后兼容别名
+STORAGE_BASE = RA_STORAGE_BASE
 
 
-class AnalysisLogger:
-    """需求分析任务的逐步操作日志记录器。
+class TaskStepLogger:
+    """通用任务逐步日志记录器。
 
-    以 JSONL 格式追加写入 analysis.log 文件，
+    以 JSONL 格式追加写入日志文件，
     每一步包含序号、时间戳、步骤名称和自定义键值对。
     """
 
-    def __init__(self, analysis_id: str):
-        self.analysis_id = analysis_id
-        self._dir = STORAGE_BASE / analysis_id
-        self._log_path = self._dir / "analysis.log"
+    def __init__(
+        self,
+        task_id: str,
+        *,
+        storage_base: Path,
+        log_filename: str = "task.log",
+        log_event_prefix: str = "task",
+    ):
+        self.task_id = task_id
+        self.analysis_id = task_id  # 兼容旧代码读取 alog.analysis_id
+        self._storage_base = Path(storage_base)
+        self._dir = self._storage_base / task_id
+        self._log_path = self._dir / log_filename
+        self._log_event_prefix = log_event_prefix
         self._started = False
-        # 从已有日志文件恢复序号（支持多次实例化续写）
         self._seq = self._load_max_seq()
 
-    # ---- 公共接口 ----
-
     def log(self, step: str, **kwargs) -> None:
-        """记录一步操作。
+        """记录一步操作（自动补全中文 message）。"""
+        from src.services.narrative_log import narrate
 
-        Args:
-            step: 步骤名称（如 ingest_start、claude_done 等）
-            **kwargs: 步骤相关的自定义键值对
-        """
         self._ensure_started()
         self._seq += 1
 
@@ -58,6 +65,8 @@ class AnalysisLogger:
             "step": step,
             **kwargs,
         }
+        if not entry.get("message"):
+            entry["message"] = narrate(step, **kwargs)
 
         try:
             self._dir.mkdir(parents=True, exist_ok=True)
@@ -65,8 +74,8 @@ class AnalysisLogger:
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")
         except Exception as exc:
             logger.error(
-                "analysis_log_write_error",
-                analysis_id=self.analysis_id,
+                f"{self._log_event_prefix}_log_write_error",
+                task_id=self.task_id,
                 step=step,
                 error=str(exc),
             )
@@ -88,69 +97,46 @@ class AnalysisLogger:
             return logs
         except Exception as exc:
             logger.error(
-                "analysis_log_read_error",
-                analysis_id=self.analysis_id,
+                f"{self._log_event_prefix}_log_read_error",
+                task_id=self.task_id,
                 error=str(exc),
             )
             return []
 
     def save_snapshot(self, filename: str, content: str) -> str:
-        """保存分析过程中的关键文件快照。
-
-        Args:
-            filename: 文件名（如 SKILL_used.md、prompt.txt）
-            content: 文件内容
-
-        Returns:
-            保存的文件路径
-        """
+        """保存过程中的关键文件快照。"""
         self._ensure_started()
         path = self._dir / filename
         try:
             self._dir.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")
             logger.debug(
-                "analysis_snapshot_saved",
-                analysis_id=self.analysis_id,
+                f"{self._log_event_prefix}_snapshot_saved",
+                task_id=self.task_id,
                 filename=filename,
                 size=len(content),
             )
             return str(path)
         except Exception as exc:
             logger.error(
-                "analysis_snapshot_error",
-                analysis_id=self.analysis_id,
+                f"{self._log_event_prefix}_snapshot_error",
+                task_id=self.task_id,
                 filename=filename,
                 error=str(exc),
             )
             return ""
 
     def save_json(self, filename: str, data: dict | list) -> str:
-        """保存 JSON 数据到文件。
-
-        Args:
-            filename: 文件名（如 analysis_result.json、review_result.json）
-            data: JSON 可序列化的数据
-
-        Returns:
-            保存的文件路径
-        """
+        """保存 JSON 数据到文件。"""
         content = json.dumps(data, ensure_ascii=False, indent=2)
         return self.save_snapshot(filename, content)
 
-    # ---- 内部方法 ----
-
     def _ensure_started(self) -> None:
-        """确保目录已创建。"""
         if not self._started:
             self._dir.mkdir(parents=True, exist_ok=True)
             self._started = True
 
     def _load_max_seq(self) -> int:
-        """从已有日志文件中恢复最大序号，实现续写。
-
-        如果文件不存在或损坏，返回 0 表示从 1 开始。
-        """
         try:
             if not self._log_path.exists():
                 return 0
@@ -173,5 +159,42 @@ class AnalysisLogger:
 
     @property
     def dir_path(self) -> Path:
-        """分析任务的工作目录路径。"""
         return self._dir
+
+
+class AnalysisLogger(TaskStepLogger):
+    """需求分析任务日志（storage/requirement_analyses/{id}/analysis.log）。"""
+
+    def __init__(self, analysis_id: str):
+        super().__init__(
+            analysis_id,
+            storage_base=RA_STORAGE_BASE,
+            log_filename="analysis.log",
+            log_event_prefix="analysis",
+        )
+
+
+class GenerationLogger(TaskStepLogger):
+    """用例生成任务日志（storage/testcase_generations/{id}/generation.log）。"""
+
+    def __init__(self, generation_id: str):
+        super().__init__(
+            generation_id,
+            storage_base=TCG_STORAGE_BASE,
+            log_filename="generation.log",
+            log_event_prefix="generation",
+        )
+        self.generation_id = generation_id
+
+
+class ExecutionRunLogger(TaskStepLogger):
+    """App UI 执行运行时桥接日志（storage/execution_runs/{id}/bridge.log）。"""
+
+    def __init__(self, run_id: str):
+        super().__init__(
+            run_id,
+            storage_base=EXE_STORAGE_BASE,
+            log_filename="bridge.log",
+            log_event_prefix="execution_run",
+        )
+        self.run_id = run_id
