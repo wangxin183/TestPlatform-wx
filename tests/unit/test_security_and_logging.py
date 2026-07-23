@@ -36,7 +36,7 @@ def test_write_auth_middleware_blocks_without_key(monkeypatch):
     app = create_app()
     client = TestClient(app)
 
-    r = client.post("/api/v1/pipelines", json={})
+    r = client.post("/api/v1/testcase-generations", json={})
     assert r.status_code == 401
     assert r.json()["success"] is False
 
@@ -53,6 +53,10 @@ def test_write_auth_middleware_allows_with_key(monkeypatch):
     client = TestClient(app)
 
     # Any write endpoint should pass middleware; handler may still reject.
-    r = client.post("/api/v1/pipelines", json={}, headers={"X-API-Key": "secret"})
+    r = client.post(
+        "/api/v1/testcase-generations",
+        json={},
+        headers={"X-API-Key": "secret"},
+    )
     assert r.status_code != 401
 

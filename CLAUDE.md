@@ -1,15 +1,15 @@
 ---
-description: TestPlatform 仓库工作指导（聚焦需求分析 / 用例生成 / 用例执行）
+description: TestPlatform 仓库工作指导（聚焦 RA / TCG / EXE / Skills）
 alwaysApply: true
 ---
 
 # CLAUDE.md
 
-本文件为在本仓库工作的 Agent / 开发者提供指导。**当前产品主线**是 ACN App 的三条独立业务：
+本文件为在本仓库工作的 Agent / 开发者提供指导。**当前产品主线**是 ACN App 的四块能力：
 
-**需求分析（RA）→ 用例生成（TCG）→ 用例执行（EXE）**
+**需求分析（RA）→ 用例生成（TCG）→ 用例执行（EXE）**，外加 **Skills 管理**。
 
-仪表盘、旧 Project Pipeline 等仍存在于代码中，但**不是当前总结与演进重点**；改动前先确认是否落在 RA/TCG/EXE。
+侧栏仅上述入口；`/` 重定向到需求分析。已下线并拆除 Web/API：仪表盘、项目管理（含旧 Pipeline）、需求管理、用例管理、用例评审、旧版执行。
 
 更深约定见：`memory-feedback-project-north-star.md`、`memory-feedback-testcase-generation.md`、`memory-feedback-execution-runtime.md`、`memory-MEMORY-update.md`。
 
@@ -66,7 +66,7 @@ src/
     requirement_analysis.py  # RA-xxxx
     testcase_generation.py   # TCG-xxxx
     execution_runs.py        # 执行任务
-    case_library.py          # 用例库（TCG 落库可见）
+    skills.py                # Skills 管理
   services/
     requirement_analysis_service.py
     testcase_generation_service.py / testcase_coverage.py
@@ -74,7 +74,7 @@ src/
     testcase_automation_lint.py / testcase_exec_heal.py
     execution_runtime_service.py / heal_loop.py / narrative_log.py
   agent_runtime/             # 统一 Agent 入口
-  web/                       # 页面：requirement_analysis / testcase_generation / app_execution
+  web/                       # 仅四页：requirement_analysis / testcase_generation / app_execution / skills
 .agents/skills/              # requirement.* / ui-testcase-from-testpoint / compile-advisor / execution-*
 storage/                     # 运行时落盘（gitignore）：RA/TCG/执行日志与产物
 ```
@@ -227,6 +227,8 @@ API 信封：`{"success": bool, "data": ..., "error": null|string}`。
 
 ---
 
-## 非主线说明（勿当演进重点）
+## 遗留代码说明
 
-仓库仍含 Project / Pipeline FSM、仪表盘、报告等能力。除非任务明确要求，否则**不要**把文档与方案重心放在这些模块上；主线始终是 RA → TCG → EXE。
+- ORM 模型与 `src/pipeline/` 等旧流水线代码可能仍在仓库中，**已无 Web/API 入口**；不要重新挂回路由或导航。
+- 二期可再物理删除 `pipeline/` 与无用 model；当前以入口拆除为准，避免一次改库炸数据。
+- 主线始终是 RA → TCG → EXE（+ Skills）。

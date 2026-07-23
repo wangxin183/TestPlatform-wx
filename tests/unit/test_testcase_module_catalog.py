@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
+from src.core.models.models import TestCase as ORMTestCase
+from src.services.testcase_generation_service import _serialize_db_case
 from src.services.testcase_module_catalog import (
     ACNModuleCatalog,
     canonicalize_module_name,
 )
-from src.core.models.models import TestCase as ORMTestCase
-from src.api.v1.pipelines import _serialize_tc
-from src.api.v1.test_cases import _serialize
 
 
 def test_catalog_contains_all_summary_modules():
@@ -96,9 +95,8 @@ def test_all_general_testcase_serializers_expose_execution_fields():
         execution_mode="agent",
         step_contracts=[{"step": 1, "start_state": "search_main"}],
     )
-    for serializer in (_serialize, _serialize_tc):
-        data = serializer(case)
-        assert data["module"] == "搜索"
-        assert data["compile_status"] == "agent_required"
-        assert data["execution_mode"] == "agent"
-        assert data["step_contracts"][0]["start_state"] == "search_main"
+    data = _serialize_db_case(case)
+    assert data["module"] == "搜索"
+    assert data["compile_status"] == "agent_required"
+    assert data["execution_mode"] == "agent"
+    assert data["step_contracts"][0]["start_state"] == "search_main"
